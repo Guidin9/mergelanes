@@ -3,6 +3,7 @@ package apps
 import (
 	"encoding/binary"
 	"net/netip"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -253,13 +254,17 @@ func listedName(pid uint32) string {
 }
 
 // Owner names the program that owns the TCP or UDP socket at src, or "" if it can't be found.
-func Owner(udp bool, src netip.AddrPort) string {
+// MergeLanes' own connections (the update check) count as unknown, so they stay out of the Apps menu.
+func Owner(udp bool, src netip.AddrPort) string { return owner(udp, src, uint32(os.Getpid())) }
+
+// owner is Owner with the process to ignore passed in (0: none), so tests can find their own sockets.
+func owner(udp bool, src netip.AddrPort, self uint32) string {
 	t := sockets[0]
 	if udp {
 		t = sockets[1]
 	}
 	pid, ok := t.pid(src)
-	if !ok {
+	if !ok || pid == self {
 		return ""
 	}
 	return processName(pid)

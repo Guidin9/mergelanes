@@ -45,7 +45,7 @@ func TestOwnerFindsOwnTCPConnection(t *testing.T) {
 			t.Fatal(err)
 		}
 		src := netip.MustParseAddrPort(c.LocalAddr().String())
-		if got, want := Owner(false, src), testExe(t); !strings.EqualFold(got, want) {
+		if got, want := owner(false, src, 0), testExe(t); !strings.EqualFold(got, want) {
 			t.Errorf("%s: Owner(%v) = %q, want %q", network, src, got, want)
 		}
 		c.Close()
@@ -63,11 +63,11 @@ func TestOwnerFindsWildcardUDPSocket(t *testing.T) {
 	defer pc.Close()
 	port := uint16(pc.LocalAddr().(*net.UDPAddr).Port)
 	src := netip.AddrPortFrom(netip.MustParseAddr("198.18.0.1"), port)
-	if got, want := Owner(true, src), testExe(t); !strings.EqualFold(got, want) {
+	if got, want := owner(true, src, 0), testExe(t); !strings.EqualFold(got, want) {
 		t.Errorf("Owner(udp %v) = %q, want %q", src, got, want)
 	}
 	// The same port over TCP is not this socket.
-	if got := Owner(false, src); got != "" && strings.EqualFold(got, testExe(t)) {
+	if got := owner(false, src, 0); got != "" && strings.EqualFold(got, testExe(t)) {
 		t.Errorf("a UDP socket must not answer for TCP, got %q", got)
 	}
 }
@@ -141,5 +141,21 @@ func TestSockTableSharesReads(t *testing.T) {
 	tb.pid(src)
 	if reads.Load() != before {
 		t.Error("a hit in a fresh table read it again")
+	}
+}
+
+// MergeLanes' own sockets count as unknown, so its update check stays out of the Apps menu.
+func TestOwnerIgnoresItself(t *testing.T) {
+	pc, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pc.Close()
+	src := netip.MustParseAddrPort(pc.LocalAddr().String())
+	if got := Owner(true, src); got != "" {
+		t.Errorf("Owner of our own socket = %q, want empty", got)
+	}
+	if got := owner(true, src, 0); !strings.EqualFold(got, testExe(t)) {
+		t.Errorf("owner(..., 0) = %q, want %q", got, testExe(t))
 	}
 }

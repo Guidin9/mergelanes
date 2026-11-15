@@ -123,7 +123,7 @@ func (m *appMenu) refresh(pol *apps.Policy, adapters []string) {
 		mode, _ := apps.ParseMode(a.Mode)
 		txt := a.Name + "  ·  " + mode.Label()
 		if a.Adapter != "" {
-			txt += fmt.Sprintf("  (now %s via %s)", a.Lane, a.Adapter)
+			txt += fmt.Sprintf("  (last: %s via %s)", a.Lane, a.Adapter)
 		}
 		m.names[i] = a.Name
 		if txt != m.lastRows[i] {
