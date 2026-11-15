@@ -27,10 +27,16 @@ const (
 )
 
 // SecureDir makes path a plain folder owned by Administrators (or SYSTEM) whose access list is
-// reset to the one above (dropBox: the ctl\ variant). Whatever was planted there instead is moved
-// out of the way, never followed: a junction or symlink is removed (not what it points to), and a
-// folder someone else created is renamed aside. It must run elevated.
-func SecureDir(path string, dropBox bool) error {
+// the one above (dropBox: the ctl\ variant), and resets that list. It must run elevated.
+//
+// The folder is inspected and fixed through one handle opened without following links, so a junction
+// switched in between a check and the next step cannot redirect it. It is trusted only if it is a
+// plain folder, owned by Administrators or SYSTEM, with a protected access list: what SecureDir itself
+// creates. Anything else is moved out of the way, never followed (a junction or symlink is removed,
+// not what it points to; a folder is renamed aside) and a fresh folder is created, but only with
+// mayReplace: for a folder the user chose (-state-dir) it is an error instead, so nothing of theirs
+// is moved. A folder that reappears between the removal and the creation makes it fail, not proceed.
+func SecureDir(path string, dropBox, mayReplace bool) error {
 	sddl := stateSDDL
 	if dropBox {
 		sddl = dropSDDL
@@ -39,39 +45,81 @@ func SecureDir(path string, dropBox bool) error {
 	if err != nil {
 		return err
 	}
-	p16, err := windows.UTF16PtrFromString(path)
-	if err != nil {
-		return err
-	}
-	attrs, err := windows.GetFileAttributes(p16)
+	h, err := openNoFollow(path)
 	switch {
 	case errors.Is(err, windows.ERROR_FILE_NOT_FOUND) || errors.Is(err, windows.ERROR_PATH_NOT_FOUND):
 		return createDir(path, sd)
-	case err != nil:
+	case err != nil && !errors.Is(err, windows.ERROR_ACCESS_DENIED):
 		return fmt.Errorf("%s: %w", path, err)
-	case attrs&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 || attrs&windows.FILE_ATTRIBUTE_DIRECTORY == 0:
-		if err := os.Remove(path); err != nil {
+	}
+	plainDir, trusted := false, false
+	if err == nil {
+		plainDir, trusted = inspect(h)
+		if trusted {
+			dacl, _, derr := sd.DACL()
+			if derr == nil {
+				derr = windows.SetSecurityInfo(h, windows.SE_FILE_OBJECT,
+					windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, dacl, nil)
+			}
+			windows.CloseHandle(h)
+			return derr
+		}
+		windows.CloseHandle(h)
+	}
+	if !mayReplace {
+		return fmt.Errorf("%s is not a folder that only administrators can change; leave -state-dir out, or let MergeLanes create the folder", path)
+	}
+	if !plainDir && err == nil {
+		if err := os.Remove(path); err != nil { // the link or file itself
 			return fmt.Errorf("%s is not a plain folder and could not be removed: %w", path, err)
 		}
 		return createDir(path, sd)
 	}
-	trusted, err := ownedByAdmins(path)
+	aside := fmt.Sprintf("%s.untrusted-%d", path, time.Now().UnixNano())
+	if err := os.Rename(path, aside); err != nil {
+		return fmt.Errorf("%s was not created by MergeLanes and could not be moved aside: %w", path, err)
+	}
+	return createDir(path, sd)
+}
+
+// openNoFollow opens the folder (or whatever is at path) itself, never what a link points to.
+func openNoFollow(path string) (windows.Handle, error) {
+	p16, err := windows.UTF16PtrFromString(path)
 	if err != nil {
-		return err
+		return windows.InvalidHandle, err
 	}
-	if !trusted {
-		aside := fmt.Sprintf("%s.untrusted-%d", path, time.Now().Unix())
-		if err := os.Rename(path, aside); err != nil {
-			return fmt.Errorf("%s was not created by MergeLanes and could not be moved aside: %w", path, err)
-		}
-		return createDir(path, sd)
+	return windows.CreateFile(p16, windows.READ_CONTROL|windows.WRITE_DAC|windows.FILE_READ_ATTRIBUTES,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE, nil, windows.OPEN_EXISTING,
+		windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
+}
+
+// inspect reports whether h is a plain folder (no reparse point) and whether it is one SecureDir
+// made: owned by Administrators or SYSTEM, with a protected access list.
+func inspect(h windows.Handle) (plainDir, trusted bool) {
+	var info windows.ByHandleFileInformation
+	if windows.GetFileInformationByHandle(h, &info) != nil {
+		return false, false
 	}
-	dacl, _, err := sd.DACL()
+	plainDir = info.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY != 0 &&
+		info.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT == 0
+	if !plainDir {
+		return false, false
+	}
+	sd, err := windows.GetSecurityInfo(h, windows.SE_FILE_OBJECT,
+		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
 	if err != nil {
-		return err
+		return true, false
 	}
-	return windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
-		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, dacl, nil)
+	owner, _, err := sd.Owner()
+	if err != nil {
+		return true, false
+	}
+	control, _, err := sd.Control()
+	if err != nil {
+		return true, false
+	}
+	byAdmins := owner.IsWellKnown(windows.WinBuiltinAdministratorsSid) || owner.IsWellKnown(windows.WinLocalSystemSid)
+	return true, byAdmins && control&windows.SE_DACL_PROTECTED != 0
 }
 
 func createDir(path string, sd *windows.SECURITY_DESCRIPTOR) error {
@@ -88,18 +136,6 @@ func createDir(path string, sd *windows.SECURITY_DESCRIPTOR) error {
 		return fmt.Errorf("creating %s: %w", path, err)
 	}
 	return nil
-}
-
-func ownedByAdmins(path string) (bool, error) {
-	sd, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION)
-	if err != nil {
-		return false, fmt.Errorf("%s: %w", path, err)
-	}
-	owner, _, err := sd.Owner()
-	if err != nil {
-		return false, err
-	}
-	return owner.IsWellKnown(windows.WinBuiltinAdministratorsSid) || owner.IsWellKnown(windows.WinLocalSystemSid), nil
 }
 
 // ProgramDataDir is %ProgramData%, from the shell's known folders rather than the environment,
@@ -136,3 +172,5 @@ func SystemTool(name string) string {
 
 // PowerShell is the full path of Windows PowerShell.
 func PowerShell() string { return SystemTool(`WindowsPowerShell\v1.0\powershell.exe`) }
+
+func closeHandle(h windows.Handle) { windows.CloseHandle(h) }

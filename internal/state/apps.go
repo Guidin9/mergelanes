@@ -81,18 +81,11 @@ func appRequestPath(dir string) string { return filepath.Join(dir, "ctl", "app")
 
 // SendApp hands a rule to a running instance.
 func SendApp(dir string, req AppRequest) error {
-	if err := os.MkdirAll(filepath.Join(dir, "ctl"), 0o755); err != nil {
-		return err
-	}
 	b, err := json.Marshal(req)
 	if err != nil {
 		return err
 	}
-	tmp := appRequestPath(dir) + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o666); err != nil {
-		return err
-	}
-	return os.Rename(tmp, appRequestPath(dir))
+	return dropFile(dir, "app", b)
 }
 
 // TakeApp consumes a pending rule request. Like TakeLimit, it treats the file as hostile: ctl/ is

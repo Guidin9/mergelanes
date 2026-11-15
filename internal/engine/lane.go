@@ -3,6 +3,7 @@ package engine
 import (
 	"math"
 	"math/rand/v2"
+	"strings"
 	"time"
 )
 
@@ -89,13 +90,13 @@ func (s *Scheduler) pinnedLocked(f Family, name string, skip map[string]struct{}
 	if name == "" {
 		return nil
 	}
-	if _, no := skip[name]; no {
-		return nil
-	}
 	now := s.now()
 	for _, sl := range s.slots {
-		if sl.key != name || !sl.present || sl.ip(f) == nil {
+		if !strings.EqualFold(sl.key, name) || !sl.present || sl.ip(f) == nil {
 			continue
+		}
+		if _, no := skip[sl.key]; no {
+			return nil
 		}
 		if now.Before(sl.downUntil[f]) || sl.state[f] == stateDown {
 			return nil

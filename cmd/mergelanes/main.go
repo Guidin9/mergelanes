@@ -523,6 +523,9 @@ func cmdLimit(args []string) {
 	if !running && saveElevated(append([]string{"limit"}, args...)) {
 		return
 	}
+	if !running {
+		prepareToSave(*dir)
+	}
 	live, err := limitApply(*dir, name, mbitPerSec, running, limitWait)
 	if err != nil {
 		die(err)

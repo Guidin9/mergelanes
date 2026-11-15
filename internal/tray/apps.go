@@ -2,6 +2,8 @@ package tray
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 
 	"fyne.io/systray"
 
@@ -91,6 +93,11 @@ func (m *appMenu) refresh(pol *apps.Policy, adapters []string) {
 		m.adapters[j], m.lastOnly[j] = name, name
 		for i := range appRows {
 			if name == "" {
+				// Uncheck while it is still in the menu: on Windows any change to a hidden item
+				// (Check, Uncheck, SetTitle) puts it back.
+				if m.only[i][j].Checked() {
+					m.only[i][j].Uncheck()
+				}
 				m.only[i][j].Hide()
 			} else {
 				m.only[i][j].SetTitle("Only " + name)
@@ -102,7 +109,10 @@ func (m *appMenu) refresh(pol *apps.Policy, adapters []string) {
 		}
 	}
 
+	// The busiest apps, listed by name: rows keep their place while the menu is open, so a click
+	// lands on the app that was under the pointer, not on whichever moved into its row.
 	recent := pol.Recent(apps.RecentWindow, appRows)
+	sort.Slice(recent, func(i, j int) bool { return apps.Key(recent[i].Name) < apps.Key(recent[j].Name) })
 	if want := len(recent) == 0; want != m.emptyShown {
 		if want {
 			m.empty.Show()
@@ -152,7 +162,10 @@ func (m *appMenu) tick(row int, mode apps.Mode) {
 	set(m.merge[row], mode.Kind == apps.ModeMerge)
 	set(m.fastest[row], mode.Kind == apps.ModeFastest)
 	for j := range trayRows {
-		set(m.only[row][j], mode.Kind == apps.ModeAdapter && m.adapters[j] != "" && m.adapters[j] == mode.Adapter)
+		if m.adapters[j] == "" {
+			continue // hidden, and touching it would show it again
+		}
+		set(m.only[row][j], mode.Kind == apps.ModeAdapter && strings.EqualFold(m.adapters[j], mode.Adapter))
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"mergelanes/internal/apps"
+	"mergelanes/internal/nics"
 	"mergelanes/internal/platform"
 	"mergelanes/internal/state"
 )
@@ -80,9 +81,15 @@ func cmdApp(args []string) {
 	if err != nil {
 		die(err)
 	}
+	if m.Kind == apps.ModeAdapter {
+		m.Adapter = adapterName(m.Adapter)
+	}
 	running := platform.InstanceRunning()
 	if !running && saveElevated(append([]string{"app"}, args...)) {
 		return
+	}
+	if !running {
+		prepareToSave(*dir)
 	}
 	live, err := appApply(*dir, name, m, running, limitWait)
 	if err != nil {
@@ -93,6 +100,36 @@ func cmdApp(args []string) {
 	} else {
 		fmt.Printf("%s: %s. It takes effect the next time MergeLanes starts.\n", name, m.Label())
 	}
+}
+
+// prepareToSave makes sure the state folder is safe to write before a setting is saved straight to
+// it (nothing is running to do it): on Windows an elevated command must not write through a link or
+// into a folder someone else made.
+func prepareToSave(dir string) {
+	if err := state.Prepare(dir); err != nil && platform.IsAdmin() {
+		die(err)
+	}
+}
+
+// adapterName returns the adapter's name as the OS spells it, so "ethernet" pins to "Ethernet". An
+// adapter that is not there now is kept as typed, with a note: a phone may be plugged in later.
+func adapterName(name string) string {
+	found, skipped, err := nics.DiscoverNicsDetailed(nil, nil)
+	if err == nil {
+		for _, n := range found {
+			if strings.EqualFold(n.Name, name) {
+				return n.Name
+			}
+		}
+		for _, s := range skipped {
+			if strings.EqualFold(s.Name, name) {
+				fmt.Fprintf(os.Stderr, "note: %s is not used for merging right now (%s); the rule applies once it is.\n", s.Name, s.Reason)
+				return s.Name
+			}
+		}
+	}
+	fmt.Fprintf(os.Stderr, "note: there is no adapter called %q right now (see mergelanes list); the rule applies once it appears.\n", name)
+	return name
 }
 
 // modeArg reads the mode as typed: a keyword, or any other word as an adapter name.

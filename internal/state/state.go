@@ -63,11 +63,31 @@ func Read(dir string) (*Status, bool) {
 	return &st, true
 }
 
-func SendMarker(dir, name string) error {
-	if err := os.MkdirAll(filepath.Join(dir, "ctl"), 0o755); err != nil {
+func SendMarker(dir, name string) error { return dropFile(dir, name, nil) }
+
+// dropFile puts a request into ctl/ under name. It is written to a new file with a random name and
+// renamed into place, so a file or link someone planted under the final name is replaced, never
+// written through: the sender may be elevated (an admin shell), and ctl/ is open to every user.
+func dropFile(dir, name string, b []byte) error {
+	ctl := filepath.Join(dir, "ctl")
+	if err := os.MkdirAll(ctl, 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, "ctl", name), nil, 0o666)
+	f, err := os.CreateTemp(ctl, name+".*.tmp")
+	if err != nil {
+		return err
+	}
+	_, werr := f.Write(b)
+	if cerr := f.Close(); werr == nil {
+		werr = cerr
+	}
+	if werr == nil {
+		werr = os.Rename(f.Name(), filepath.Join(ctl, name))
+	}
+	if werr != nil {
+		os.Remove(f.Name())
+	}
+	return werr
 }
 
 // TakeMarker consumes a marker, reporting whether it was there.

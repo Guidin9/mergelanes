@@ -59,3 +59,37 @@ func TestTakeLimitRefusesASymlink(t *testing.T) {
 		t.Fatalf("the link's target was touched: %v", err)
 	}
 }
+
+// A link planted under a request's name is replaced, never written through: the sender may be
+// root, and ctl/ is open to every user.
+func TestSendReplacesAPlantedLink(t *testing.T) {
+	dir := t.TempDir()
+	ctl := filepath.Join(dir, "ctl")
+	if err := os.MkdirAll(ctl, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	victim := filepath.Join(dir, "victim")
+	if err := os.WriteFile(victim, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"limit", "app", "off"} {
+		if err := os.Symlink(victim, filepath.Join(ctl, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := SendLimit(dir, LimitRequest{Adapter: "eth0", Mbps: 5}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SendApp(dir, AppRequest{App: "steam", Mode: "merge"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SendMarker(dir, "off"); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(victim); string(b) != "keep" {
+		t.Fatalf("a request was written through a link: victim now %q", b)
+	}
+	if req, ok := TakeLimit(dir); !ok || req.Adapter != "eth0" {
+		t.Errorf("limit request lost: %+v %v", req, ok)
+	}
+}

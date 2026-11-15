@@ -119,10 +119,19 @@ func SetAutostart(on bool) error {
 		user = d + `\` + user
 	}
 	tmp := filepath.Join(StateDir, "task.xml")
-	if err := os.WriteFile(tmp, utf16le(taskXML(user, exe)), 0o600); err != nil {
+	os.Remove(tmp)
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) // a fresh file, never one left there
+	if err != nil {
 		return err
 	}
 	defer os.Remove(tmp)
+	_, err = f.Write(utf16le(taskXML(user, exe)))
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return err
+	}
 	return run("schtasks", "/Create", "/F", "/TN", taskName, "/XML", tmp)
 }
 

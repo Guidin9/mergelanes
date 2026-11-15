@@ -2,6 +2,7 @@ package state
 
 import (
 	"path/filepath"
+	"strings"
 
 	"mergelanes/internal/platform"
 )
@@ -17,8 +18,12 @@ func Prepare(dir string) error {
 	if !platform.IsAdmin() {
 		return nil
 	}
-	if err := platform.SecureDir(dir, false); err != nil {
+	// Only the default folder may be replaced when something else is found there; a folder the user
+	// named with -state-dir is theirs, so that is an error instead.
+	mayReplace := strings.EqualFold(filepath.Clean(dir), filepath.Clean(defaultDir()))
+	if err := platform.SecureDir(dir, false, mayReplace); err != nil {
 		return err
 	}
-	return platform.SecureDir(filepath.Join(dir, "ctl"), true)
+	// ctl\ is inside a folder only administrators can change, so whatever is there may be replaced.
+	return platform.SecureDir(filepath.Join(dir, "ctl"), true, true)
 }

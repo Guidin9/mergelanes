@@ -251,6 +251,7 @@ func (s *Scheduler) Update(nics []nics.Nic) {
 				changed = !old.ip6.Equal(na.ip6)
 			}
 			if changed {
+				found.rtt[f].Store(0) // a new network: its latency is unknown too
 				found.state[f] = stateUnknown
 				found.lastProbe[f], found.downUntil[f] = time.Time{}, time.Time{}
 				found.peak[f] = 0

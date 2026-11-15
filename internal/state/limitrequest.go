@@ -29,18 +29,11 @@ func limitRequestPath(dir string) string { return filepath.Join(dir, "ctl", "lim
 
 // SendLimit hands a cap to a running instance.
 func SendLimit(dir string, req LimitRequest) error {
-	if err := os.MkdirAll(filepath.Join(dir, "ctl"), 0o755); err != nil {
-		return err
-	}
 	b, err := json.Marshal(req)
 	if err != nil {
 		return err
 	}
-	tmp := limitRequestPath(dir) + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o666); err != nil {
-		return err
-	}
-	return os.Rename(tmp, limitRequestPath(dir))
+	return dropFile(dir, "limit", b)
 }
 
 // TakeLimit consumes a pending request.
