@@ -5,6 +5,14 @@ entry here before pushing a version tag.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-15
+
+### Fixed
+- **Windows: apps are recognised in a burst of new connections too.** When an app opened a connection
+  within 15 ms of the last look at Windows' connection table, MergeLanes could skip looking again and treat
+  it as an unknown app, so its rule did not apply to that connection. Windows' clock moves in 15 ms steps
+  on an idle PC; the lookups are now counted instead of timed.
+
 ## [0.1.0] - 2026-11-15
 
 The first MergeLanes release. It starts from [net-merge](https://github.com/net-merge/net-merge) 0.3.7 by

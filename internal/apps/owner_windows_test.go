@@ -159,3 +159,27 @@ func TestOwnerIgnoresItself(t *testing.T) {
 		t.Errorf("owner(..., 0) = %q, want %q", got, testExe(t))
 	}
 }
+
+// A socket that appears right after a read must be found by the next lookup, even when both happen
+// within one tick of Windows' coarse clock (the cause of a CI failure).
+func TestSockTableRereadsForALaterSocket(t *testing.T) {
+	src := netip.MustParseAddrPort("198.18.0.1:40001")
+	calls := 0
+	tb := newSockTable(false)
+	tb.read = func(bool) (map[sockKey]uint32, error) {
+		calls++
+		if calls == 1 {
+			return map[sockKey]uint32{}, nil // the socket does not exist yet
+		}
+		return map[sockKey]uint32{{false, src.Addr(), src.Port()}: 9}, nil
+	}
+	if _, ok := tb.pid(src); ok {
+		t.Fatal("found a socket that was not in the table yet")
+	}
+	if pid, ok := tb.pid(src); !ok || pid != 9 {
+		t.Fatalf("second lookup = %d %v, want 9 from a new read", pid, ok)
+	}
+	if calls != 2 {
+		t.Errorf("%d reads, want 2", calls)
+	}
+}

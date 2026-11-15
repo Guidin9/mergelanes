@@ -48,6 +48,8 @@ type sockTable struct {
 	done    *sync.Cond
 	m       map[sockKey]uint32
 	at      time.Time // when the read behind m started
+	gen     uint64    // the number of the read behind m
+	started uint64    // reads started so far
 	reading bool
 }
 
@@ -61,22 +63,26 @@ var sockets = [2]*sockTable{newSockTable(false), newSockTable(true)}
 
 // pid finds the process that owns the socket at src. A UDP socket may be bound to the wildcard
 // address (0.0.0.0 or ::, the latter also for dual-stack IPv4), so for UDP that is tried as well.
+//
+// Reads are numbered rather than timed: Windows' clock moves in steps of up to 15.6 ms, so a read
+// and a flow that arrived just after it can carry the same time.
 func (t *sockTable) pid(src netip.AddrPort) (uint32, bool) {
-	start := time.Now()
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.m != nil && start.Sub(t.at) < tableMaxAge {
+	if t.m != nil && time.Since(t.at) < tableMaxAge {
 		if pid, ok := t.lookup(src); ok {
 			return pid, true
 		}
 	}
-	for t.at.Before(start) { // only a read that began after this flow arrived is sure to know it
+	need := t.started + 1 // only a read that starts from now on is sure to know this flow
+	for t.gen < need {
 		if t.reading {
 			t.done.Wait()
 			continue
 		}
 		t.reading = true
-		began := time.Now()
+		t.started++
+		n, began := t.started, time.Now()
 		t.mu.Unlock()
 		m, err := t.read(t.udp)
 		t.mu.Lock()
@@ -84,7 +90,7 @@ func (t *sockTable) pid(src netip.AddrPort) (uint32, bool) {
 		if err == nil {
 			t.m = m
 		}
-		t.at = began
+		t.gen, t.at = n, began
 		t.done.Broadcast()
 	}
 	return t.lookup(src)
