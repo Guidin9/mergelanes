@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"net-merge/internal/logx"
-	"net-merge/internal/update"
+	"mergelanes/internal/logx"
+	"mergelanes/internal/update"
 )
 
 // updateEvery is how often the tray asks GitHub for a newer release. Releases are rare and GitHub

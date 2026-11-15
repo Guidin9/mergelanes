@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"net-merge/internal/engine"
-	"net-merge/internal/state"
+	"mergelanes/internal/engine"
+	"mergelanes/internal/state"
 )
 
 func TestLimitApplyWithoutInstanceWritesLimitsFile(t *testing.T) {

@@ -9,11 +9,11 @@ import (
 	"syscall"
 	"time"
 
-	"net-merge/internal/logx"
-	"net-merge/internal/platform"
-	"net-merge/internal/state"
-	"net-merge/internal/tray"
-	"net-merge/internal/tun"
+	"mergelanes/internal/logx"
+	"mergelanes/internal/platform"
+	"mergelanes/internal/state"
+	"mergelanes/internal/tray"
+	"mergelanes/internal/tun"
 )
 
 func cmdTray(args []string) {
@@ -33,17 +33,17 @@ func cmdTray(args []string) {
 		if err := platform.RelaunchTray(child, *hidden); err != nil {
 			die(err)
 		}
-		fmt.Println("Approve the admin prompt. Look for the net-merge icon in the system tray (^ overflow arrow) or menu bar.")
+		fmt.Println("Approve the admin prompt. Look for the mergelanes icon in the system tray (^ overflow arrow) or menu bar.")
 		return
 	}
 	if !platform.SingleInstance() {
-		fmt.Println("net-merge is already running.")
+		fmt.Println("mergelanes is already running.")
 		return
 	}
 	if c.logFile == "" {
 		c.stats = 0 // nobody is watching a hidden console
 		if !platform.HasConsole() {
-			c.logFile = filepath.Join(c.stateDir, "net-merge.log") // windowless build: keep a log for diagnosis
+			c.logFile = filepath.Join(c.stateDir, "mergelanes.log") // windowless build: keep a log for diagnosis
 		}
 	}
 	if err := c.setup(); err != nil {
@@ -66,6 +66,7 @@ func cmdTray(args []string) {
 		die(err)
 	}
 	t.B = bal
+	t.P = c.pol
 
 	// Started at sign-in this process can beat the desktop shell by a fraction of a second. With no
 	// taskbar the tray library fails to create the icon and never becomes ready, so wait for it.
@@ -89,5 +90,5 @@ func cmdTray(args []string) {
 		state.Clear(c.stateDir)
 		os.Exit(0)
 	}()
-	tray.Run(t, sched, bal, c.stateDir, version, !*startOff, *autoPause, ready)
+	tray.Run(t, sched, bal, c.pol, c.stateDir, version, !*startOff, *autoPause, ready)
 }

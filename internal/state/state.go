@@ -4,24 +4,24 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"runtime"
 	"time"
 
-	"net-merge/internal/engine"
+	"mergelanes/internal/apps"
+	"mergelanes/internal/engine"
 )
 
 // The elevated process can't be signalled from a normal shell, so control goes through files in
-// a per-user directory: status.json (written once a second while on) and marker files
-// ("on", "off", "quit") that the running instance consumes.
+// its state directory: status.json (written once a second while on) and marker files ("on", "off",
+// "quit") and requests ("limit", "app") in ctl/ that the running instance consumes.
 
 // macStateDir is where the macOS tray keeps its status and markers. It is under /var/run because
 // the tray runs as root but is driven by a normal user, so the directory has to be root-owned.
-const macStateDir = "/var/run/net-merge"
+const macStateDir = "/var/run/mergelanes"
 
 // macLimitsDir is where the caps live on macOS: /var/run is emptied at boot, and a metered-tether
 // cap that forgets itself after a reboot is worse than no cap at all. Application Support is the
 // usual place for a setting that has to stay.
-const macLimitsDir = "/Library/Application Support/net-merge"
+const macLimitsDir = "/Library/Application Support/MergeLanes"
 
 type Status struct {
 	PID     int
@@ -30,30 +30,12 @@ type Status struct {
 	Since   time.Time
 	Updated time.Time
 	NICs    []engine.SlotStats
+	Apps    []apps.AppStat `json:",omitempty"`
 }
 
-func DefaultDir() string {
-	// The macOS tray runs as root but is commanded by the user, so its state can't live in a
-	// user-owned directory (root would follow a planted symlink): a fixed root-owned path.
-	if runtime.GOOS == "darwin" {
-		return macStateDir
-	}
-	base, err := os.UserCacheDir()
-	if err != nil {
-		base = os.TempDir()
-	}
-	return filepath.Join(base, "net-merge")
-}
-
-// Prepare creates the state dir, with markers going in a sticky world-writable ctl/ inside it, so
-// a normal user can drop one without being able to touch anything else there.
-func Prepare(dir string) error {
-	ctl := filepath.Join(dir, "ctl")
-	if err := os.MkdirAll(ctl, 0o755); err != nil {
-		return err
-	}
-	return os.Chmod(ctl, os.ModeSticky|0o777)
-}
+// DefaultDir is where status, markers, limits and app rules live: see dir_windows.go and
+// dir_other.go.
+func DefaultDir() string { return defaultDir() }
 
 func Write(dir string, st Status) {
 	b, err := json.Marshal(st)

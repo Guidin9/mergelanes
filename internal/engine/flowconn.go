@@ -6,7 +6,7 @@ import (
 	"net"
 	"sync"
 
-	"net-merge/internal/nics"
+	"mergelanes/internal/nics"
 )
 
 // slotConn counts a pinned TCP flow's bytes and releases its slot on Close. It exposes
@@ -58,9 +58,17 @@ func (c *slotConn) CloseRead() error  { c.release(); return c.TCPConn.CloseRead(
 func (c *slotConn) CloseWrite() error { c.release(); return c.TCPConn.CloseWrite() }
 func (c *slotConn) Close() error      { c.release(); return c.TCPConn.Close() }
 
+// Adapter names the adapter the flow was pinned to.
+func (c *slotConn) Adapter() string { return c.sl.Name }
+
 // DialPinned is DialTCP for front-ends that hand the conn to someone else to pump.
 func (b *Balancer) DialPinned(ctx context.Context, host string, port int) (net.Conn, error) {
-	c, sl, f, err := b.DialTCP(ctx, host, port)
+	return b.DialPinnedLane(ctx, host, port, Lane{})
+}
+
+// DialPinnedLane is DialPinned for a flow in a lane. The conn has an Adapter() string method.
+func (b *Balancer) DialPinnedLane(ctx context.Context, host string, port int, lane Lane) (net.Conn, error) {
+	c, sl, f, err := b.DialTCPLane(ctx, host, port, lane)
 	if err != nil {
 		return nil, err
 	}
@@ -72,6 +80,9 @@ type slotPacketConn struct {
 	sl  *Slot
 	fam Family
 }
+
+// Adapter names the adapter the socket is bound to.
+func (c *slotPacketConn) Adapter() string { return c.sl.Name }
 
 func (c *slotPacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
 	n, a, err := c.PacketConn.ReadFrom(p)
@@ -93,6 +104,11 @@ func (c *slotPacketConn) WriteTo(p []byte, a net.Addr) (int, error) {
 // of that flow leaves the same way). UDP flows are short and numerous (DNS), so they don't hold
 // a balancing slot: the pick still spreads them via the scheduler's tie-breaking.
 func (b *Balancer) ListenUDP(ctx context.Context, f Family) (net.PacketConn, error) {
+	return b.ListenUDPLane(ctx, f, Lane{})
+}
+
+// ListenUDPLane is ListenUDP for a flow in a lane. The conn has an Adapter() string method.
+func (b *Balancer) ListenUDPLane(ctx context.Context, f Family, lane Lane) (net.PacketConn, error) {
 	network := "udp4"
 	if f == Fam6 {
 		network = "udp6"
@@ -100,7 +116,7 @@ func (b *Balancer) ListenUDP(ctx context.Context, f Family) (net.PacketConn, err
 	tried := map[string]struct{}{}
 	lastErr := errors.New("no usable network adapter")
 	for {
-		sl := b.S.AcquireFor(f, tried)
+		sl := b.S.AcquireLane(f, lane, tried)
 		if sl == nil {
 			return nil, lastErr
 		}

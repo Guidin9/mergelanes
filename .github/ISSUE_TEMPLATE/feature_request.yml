@@ -1,5 +1,5 @@
 name: Feature request
-description: An idea to make net-merge better
+description: An idea to make mergelanes better
 labels: [enhancement]
 body:
   - type: textarea
@@ -12,7 +12,7 @@ body:
   - type: textarea
     id: idea
     attributes:
-      label: What should net-merge do?
+      label: What should mergelanes do?
     validations:
       required: true
   - type: textarea

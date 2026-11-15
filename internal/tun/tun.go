@@ -22,12 +22,13 @@ import (
 	"github.com/xjasonlyu/tun2socks/v2/proxy/reject"
 	"github.com/xjasonlyu/tun2socks/v2/tunnel"
 
-	"net-merge/internal/engine"
-	"net-merge/internal/logx"
+	"mergelanes/internal/apps"
+	"mergelanes/internal/engine"
+	"mergelanes/internal/logx"
 )
 
 const (
-	tunName = "net-merge"
+	tunName = "mergelanes"
 	// A ULA on purpose. The OS's source-address policy (RFC 6724, on Windows and in glibc) prefers
 	// IPv4 over IPv6 when the only IPv6 source on the route is a ULA, so dual-stack sites go over
 	// IPv4 and spread across every adapter, while IPv6-only sites (and explicit IPv6) still work
@@ -118,11 +119,20 @@ var (
 )
 
 // tunProxy plugs the Balancer into tun2socks: every TCP/UDP flow that enters the TUN is dialed
-// out through a pinned NIC. There is no SOCKS hop in between.
-type tunProxy struct{ b *engine.Balancer }
+// out through a pinned NIC. There is no SOCKS hop in between. The policy (nil = merge everything)
+// picks each flow's lane from the app that opened it.
+type tunProxy struct {
+	b *engine.Balancer
+	p *apps.Policy
+}
 
 func (p tunProxy) DialContext(ctx context.Context, m *M.Metadata) (net.Conn, error) {
-	return p.b.DialPinned(ctx, m.DstIP.Unmap().String(), int(m.DstPort))
+	app, lane := p.decide(false, m)
+	c, err := p.b.DialPinnedLane(ctx, m.DstIP.Unmap().String(), int(m.DstPort), lane)
+	if err == nil {
+		p.note(app, lane, c)
+	}
+	return c, err
 }
 
 func (p tunProxy) DialUDP(m *M.Metadata) (net.PacketConn, error) {
@@ -130,7 +140,30 @@ func (p tunProxy) DialUDP(m *M.Metadata) (net.PacketConn, error) {
 	if d := m.DstIP.Unmap(); d.Is6() {
 		f = engine.Fam6
 	}
-	return p.b.ListenUDP(context.Background(), f)
+	app, lane := p.decide(true, m)
+	c, err := p.b.ListenUDPLane(context.Background(), f, lane)
+	if err == nil {
+		p.note(app, lane, c)
+	}
+	return c, err
+}
+
+func (p tunProxy) decide(udp bool, m *M.Metadata) (string, engine.Lane) {
+	if p.p == nil {
+		return "", engine.Lane{}
+	}
+	return p.p.Decide(apps.Flow{UDP: udp,
+		Src: netip.AddrPortFrom(m.SrcIP.Unmap(), m.SrcPort),
+		Dst: netip.AddrPortFrom(m.DstIP.Unmap(), m.DstPort)})
+}
+
+func (p tunProxy) note(app string, lane engine.Lane, c any) {
+	if p.p == nil || app == "" {
+		return
+	}
+	if a, ok := c.(interface{ Adapter() string }); ok {
+		p.p.Note(app, lane, a.Adapter())
+	}
 }
 
 // Tun is the system-wide switch: On creates the adapter and routes, Off removes them. Both are
@@ -138,6 +171,7 @@ func (p tunProxy) DialUDP(m *M.Metadata) (net.PacketConn, error) {
 type Tun struct {
 	mu  sync.Mutex
 	B   *engine.Balancer // set before On
+	P   *apps.Policy     // set before On; nil merges every flow
 	MTU int              // set before On; see DefaultMTU
 	dev device.Device
 	stk *stack.Stack
@@ -225,7 +259,7 @@ func (t *Tun) On() (err error) {
 			t.teardown()
 		}
 	}()
-	tunnel.T().SetProxy(tunProxy{t.B})
+	tunnel.T().SetProxy(tunProxy{t.B, t.P})
 
 	ip4 := pickNet(usedNets(t.dev.Name()))
 	if ip4.Addr() != tunRange.Addr().Next() {
@@ -279,7 +313,7 @@ func (t *Tun) teardown() {
 	t.dev, t.stk, t.idx, t.on = nil, nil, 0, false
 }
 
-// CleanupStale removes routes left on a surviving net-merge adapter (e.g. after a crash).
+// CleanupStale removes routes left on a surviving mergelanes adapter (e.g. after a crash).
 func CleanupStale() {
 	if staleHook != nil {
 		staleHook()

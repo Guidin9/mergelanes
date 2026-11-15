@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"net-merge/internal/nics"
+	"mergelanes/internal/nics"
 )
 
 func nic(name, ip string, w float64) nics.Nic {
@@ -277,11 +277,11 @@ func TestProbeAgainstLocalListener(t *testing.T) {
 	probeTargets[Fam4] = []string{ln.Addr().String()}
 
 	s := NewScheduler([]nics.Nic{nic("A", "127.0.0.2", 1)})
-	if !probe(s.slots[0], Fam4) {
-		t.Fatal("probe should pass against a reachable target")
+	if up, rtt := probe(s.slots[0], Fam4); !up || rtt <= 0 {
+		t.Fatalf("probe should pass against a reachable target and time the handshake, got %v %v", up, rtt)
 	}
 	ln.Close()
-	if probe(s.slots[0], Fam4) {
+	if up, _ := probe(s.slots[0], Fam4); up {
 		t.Fatal("probe should fail once the target is gone")
 	}
 }

@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.guidin9.mergelanes</id>
+  <name>MergeLanes</name>
+  <summary>Use all your internet connections at the same time</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later AND MIT</project_license>
+  <developer id="io.github.guidin9">
+    <name>Mert Demirdöven</name>
+  </developer>
+  <description>
+    <p>
+      MergeLanes uses all your network adapters together: Wi-Fi, Ethernet, USB tethering and phone hotspots.
+      Downloads get the speed of every connection added up.
+    </p>
+    <p>
+      Each app can have its own lane: games and voice chat stay on the lowest-latency connection by
+      themselves, and you can pin any app to one adapter with a fallback, straight from the tray menu.
+    </p>
+    <p>
+      It gives every new connection to one of your links, faster links get more, and a link with no internet
+      gets none. It works for every app, with no proxy settings, no server and no VPN. If it crashes, your
+      internet keeps working.
+    </p>
+    <p>
+      One connection always uses one link, so the gain comes from many connections at once, such as game
+      downloads, browsers and download managers.
+    </p>
+    <p>
+      The tray icon needs a desktop with StatusNotifierItem support. On GNOME that is the AppIndicator
+      extension, which Ubuntu already includes.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.guidin9.mergelanes.desktop</launchable>
+  <provides>
+    <binary>mergelanes</binary>
+  </provides>
+  <keywords>
+    <keyword>network</keyword>
+    <keyword>bandwidth</keyword>
+    <keyword>tethering</keyword>
+    <keyword>wifi</keyword>
+    <keyword>load balancing</keyword>
+  </keywords>
+  <url type="homepage">https://github.com/Guidin9/mergelanes</url>
+  <url type="bugtracker">https://github.com/Guidin9/mergelanes/issues</url>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2026-11-15"/>
+  </releases>
+</component>

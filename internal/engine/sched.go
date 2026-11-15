@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"net-merge/internal/nics"
+	"mergelanes/internal/nics"
 )
 
 // Family selects which address of a NIC a flow is pinned to. Load, speed and health are tracked
@@ -48,6 +48,7 @@ type Slot struct {
 	actF                  [2]atomic.Int64
 	bytesIn, bytesOut     [2]atomic.Int64
 	probing               [2]atomic.Bool
+	rtt                   [2]atomic.Int64           // smoothed probe latency in µs, 0 = not measured; see lane.go
 	limit                 atomic.Pointer[limitPair] // nil = unlimited; see limit.go
 
 	// guarded by Scheduler.mu
@@ -61,7 +62,7 @@ type Slot struct {
 	peak            [2]float64 // observed capacity: max recent rateIn+rateOut
 	flows           [2]map[*flowActivity]struct{}
 
-	// The adapter's total traffic from the OS's counters (all apps, not only net-merge's flows).
+	// The adapter's total traffic from the OS's counters (all apps, not only mergelanes's flows).
 	linkIn, linkOut         uint64
 	linkRateIn, linkRateOut float64
 	linkPrimed              bool
@@ -124,21 +125,24 @@ type SlotStats struct {
 	Active, Total     int64
 	Failed            int64
 	BytesIn, BytesOut int64
-	RateIn, RateOut   float64 // through net-merge, both families summed (bytes/s)
+	RateIn, RateOut   float64 // through mergelanes, both families summed (bytes/s)
 	LinkIn, LinkOut   float64 // through the adapter by any app, from the OS's counters (bytes/s)
 	Peak, Peak6       float64
 	LimitMbps         float64 // cap in Mbit/s, 0 = unlimited
+	RTTms, RTT6ms     float64 // smoothed probe latency, 0 = not measured
+	Primary           bool    // LaneFastest flows (games, voice) go here
 }
 
 // Scheduler uses weighted least-busy-flows per address family. Automatic mode
 // discounts idle TCP sockets; static mode
 // retains weighted least-open-flows. Data transfer accounting stays lock-free.
 type Scheduler struct {
-	mu     sync.Mutex
-	slots  []*Slot
-	auto   bool
-	limits map[string]float64 // adapter name -> Mbit/s, 0 or absent = unlimited
-	now    func() time.Time
+	mu      sync.Mutex
+	slots   []*Slot
+	auto    bool
+	limits  map[string]float64 // adapter name -> Mbit/s, 0 or absent = unlimited
+	primary [2]string          // where LaneFastest flows go now, per family; see lane.go
+	now     func() time.Time
 }
 
 func NewScheduler(nics []nics.Nic) *Scheduler {
@@ -189,7 +193,7 @@ func (s *Scheduler) SetLimits(limits map[string]float64) {
 	}
 }
 
-// Limits returns the caps by adapter name in Mbit/s, for saving and for `net-merge status`.
+// Limits returns the caps by adapter name in Mbit/s, for saving and for `mergelanes status`.
 func (s *Scheduler) Limits() map[string]float64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -387,34 +391,7 @@ func (s *Scheduler) Release(sl *Slot)                       { s.ReleaseFor(sl, F
 func (s *Scheduler) AcquireFor(f Family, skip map[string]struct{}) *Slot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	now := s.now()
-	// Tiers: 0 = probed up, 1 = not probed yet, 2 = probe failed or link error cooldown.
-	// Only the best non-empty tier is used, so a dead tether gets no flows but, if every NIC
-	// looks dead, flows still go somewhere rather than nowhere.
-	var tiers [3][]*Slot
-	for _, sl := range s.slots {
-		if !sl.present || sl.ip(f) == nil {
-			continue
-		}
-		if _, no := skip[sl.key]; no {
-			continue
-		}
-		t := 1
-		switch {
-		case now.Before(sl.downUntil[f]) || sl.state[f] == stateDown:
-			t = 2
-		case sl.state[f] == stateUp:
-			t = 0
-		}
-		tiers[t] = append(tiers[t], sl)
-	}
-	var pool []*Slot
-	for _, tier := range tiers {
-		if len(tier) > 0 {
-			pool = tier
-			break
-		}
-	}
+	pool := s.poolLocked(f, skip)
 	if len(pool) == 0 {
 		return nil
 	}
@@ -433,10 +410,45 @@ func (s *Scheduler) AcquireFor(f Family, skip map[string]struct{}) *Slot {
 			best, bestScore = sl, score
 		}
 	}
-	best.active.Add(1)
-	best.actF[f].Add(1)
-	best.total.Add(1)
+	s.takeLocked(best, f)
 	return best
+}
+
+// poolLocked returns the adapters a new flow of family f may go to: the best non-empty tier of
+// 0 = probed up, 1 = not probed yet, 2 = probe failed or link error cooldown. A dead tether gets no
+// flows but, if every NIC looks dead, flows still go somewhere rather than nowhere.
+func (s *Scheduler) poolLocked(f Family, skip map[string]struct{}) []*Slot {
+	now := s.now()
+	var tiers [3][]*Slot
+	for _, sl := range s.slots {
+		if !sl.present || sl.ip(f) == nil {
+			continue
+		}
+		if _, no := skip[sl.key]; no {
+			continue
+		}
+		t := 1
+		switch {
+		case now.Before(sl.downUntil[f]) || sl.state[f] == stateDown:
+			t = 2
+		case sl.state[f] == stateUp:
+			t = 0
+		}
+		tiers[t] = append(tiers[t], sl)
+	}
+	for _, tier := range tiers {
+		if len(tier) > 0 {
+			return tier
+		}
+	}
+	return nil
+}
+
+// takeLocked counts a new flow on sl.
+func (s *Scheduler) takeLocked(sl *Slot, f Family) {
+	sl.active.Add(1)
+	sl.actF[f].Add(1)
+	sl.total.Add(1)
 }
 
 // V6Usable reports whether any adapter can currently carry IPv6.
@@ -514,6 +526,8 @@ func (s *Scheduler) Snapshot() []SlotStats {
 			LinkIn: sl.linkRateIn, LinkOut: sl.linkRateOut,
 			Peak: sl.peak[Fam4], Peak6: sl.peak[Fam6],
 			LimitMbps: sl.limitMbps(),
+			RTTms:     float64(sl.rtt[Fam4].Load()) / 1000, RTT6ms: float64(sl.rtt[Fam6].Load()) / 1000,
+			Primary: sl.key == s.primary[Fam4],
 		}
 		if a.ip4 != nil {
 			st.IP, st.State = a.ip4.String(), sl.state[Fam4].String()

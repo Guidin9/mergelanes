@@ -1,4 +1,4 @@
-module net-merge
+module mergelanes
 
 go 1.27
 

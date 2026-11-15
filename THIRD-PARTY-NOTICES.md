@@ -1,7 +1,9 @@
 # Third-party notices
 
-net-merge is MIT licensed (see `LICENSE`). It links the following libraries, all under permissive
-licenses (license texts are in each project's repository and in the Go module cache):
+MergeLanes is licensed GPL-3.0-or-later (see `LICENSE`). It is a fork of
+[net-merge](https://github.com/net-merge/net-merge) by Rohit Mahto, whose code stays under the MIT license
+(see `LICENSE-net-merge`). It links the following libraries, all under licenses compatible with the GPL
+(license texts are in each project's repository and in the Go module cache):
 
 | Component | License | Use |
 |---|---|---|

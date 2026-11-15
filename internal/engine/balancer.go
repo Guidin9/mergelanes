@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"net-merge/internal/nics"
+	"mergelanes/internal/nics"
 )
 
 // Balancer dials outbound flows through the Scheduler. Front-ends (SOCKS5 now, TUN later)
@@ -132,6 +132,13 @@ func classify(err error) dialClass {
 // DialTCP connects to host:port over one NIC, failing over to the others on link-level errors.
 // On success the caller owns the returned slot and must Relay or Release it.
 func (b *Balancer) DialTCP(ctx context.Context, host string, port int) (net.Conn, *Slot, Family, error) {
+	return b.DialTCPLane(ctx, host, port, Lane{})
+}
+
+// DialTCPLane is DialTCP for a flow that must stay in a lane (one app pinned to an adapter, or a
+// game kept on the lowest-latency one). A failed adapter is skipped on the retry, so a pinned flow
+// falls back to the others.
+func (b *Balancer) DialTCPLane(ctx context.Context, host string, port int, lane Lane) (net.Conn, *Slot, Family, error) {
 	// The destination's family decides which NIC address is used; a host name stays IPv4.
 	f, network := Fam4, "tcp4"
 	if ip := net.ParseIP(host); ip != nil && ip.To4() == nil {
@@ -144,7 +151,7 @@ func (b *Balancer) DialTCP(ctx context.Context, host string, port int) (net.Conn
 		rep, lastErr = repNetUnreachable, errors.New("no usable IPv6 adapter")
 	}
 	for {
-		sl := b.S.AcquireFor(f, tried)
+		sl := b.S.AcquireLane(f, lane, tried)
 		if sl == nil {
 			return nil, nil, f, &dialError{rep: rep, err: lastErr}
 		}

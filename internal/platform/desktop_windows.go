@@ -43,8 +43,9 @@ func WaitForTray(max time.Duration) bool {
 	}
 }
 
+// run starts a Windows tool (schtasks, ...) by its full path in System32.
 func run(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
+	cmd := exec.Command(SystemTool(name+".exe"), args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	out, err := cmd.CombinedOutput()
 	if err != nil {

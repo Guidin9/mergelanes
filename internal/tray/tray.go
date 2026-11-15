@@ -1,5 +1,5 @@
 // Package tray is the notification-area icon: green/grey for on/off, live speeds on hover, and
-// a menu to pause, change the IPv6 mode, start at sign-in or quit.
+// a menu to pause, pick each app's lane, change the IPv6 mode, start at sign-in or quit.
 package tray
 
 import (
@@ -11,21 +11,22 @@ import (
 
 	"fyne.io/systray"
 
-	"net-merge/internal/engine"
-	"net-merge/internal/icon"
-	"net-merge/internal/logx"
-	"net-merge/internal/platform"
-	"net-merge/internal/state"
-	"net-merge/internal/tun"
-	"net-merge/internal/update"
+	"mergelanes/internal/apps"
+	"mergelanes/internal/engine"
+	"mergelanes/internal/icon"
+	"mergelanes/internal/logx"
+	"mergelanes/internal/platform"
+	"mergelanes/internal/state"
+	"mergelanes/internal/tun"
+	"mergelanes/internal/update"
 )
 
 const trayRows = 4 // adapters shown in the menu; extra rows stay hidden
 
 // Run shows the tray icon and blocks until Quit, and closes ready once the icon exists. With
 // startOn it merges as soon as it can (at once, or, with autoPause, once two connections work).
-func Run(t *tun.Tun, sched *engine.Scheduler, bal *engine.Balancer, stateDir, version string, startOn, autoPause bool, ready chan struct{}) {
-	ui := &trayUI{tun: t, sched: sched, bal: bal, stateDir: stateDir, version: version, startOn: startOn,
+func Run(t *tun.Tun, sched *engine.Scheduler, bal *engine.Balancer, pol *apps.Policy, stateDir, version string, startOn, autoPause bool, ready chan struct{}) {
+	ui := &trayUI{tun: t, sched: sched, bal: bal, pol: pol, stateDir: stateDir, version: version, startOn: startOn,
 		iconOn: icon.Tray(true), iconOff: icon.Tray(false), ready: ready}
 	ui.ap.enabled = autoPause
 	exit := func() { t.Close(); state.Clear(stateDir) }
@@ -37,6 +38,8 @@ type trayUI struct {
 	tun      *tun.Tun
 	bal      *engine.Balancer
 	sched    *engine.Scheduler
+	pol      *apps.Policy
+	apps     appMenu
 	stateDir string
 	version  string
 	startOn  bool
@@ -67,8 +70,8 @@ func (u *trayUI) onReady() {
 		close(u.ready)
 	}
 	systray.SetIcon(u.iconOff)
-	systray.SetTooltip("net-merge")
-	u.header = systray.AddMenuItem("net-merge", "")
+	systray.SetTooltip("MergeLanes")
+	u.header = systray.AddMenuItem("MergeLanes", "")
 	u.header.Disable()
 	systray.AddSeparator()
 	u.limitClicks = make(chan limitClick, trayRows)
@@ -94,11 +97,13 @@ func (u *trayUI) onReady() {
 		r.Hide()
 	}
 	systray.AddSeparator()
+	u.apps.build()
+	systray.AddSeparator()
 	u.v6Item = systray.AddMenuItemCheckbox("Use all adapters (IPv6 only if every adapter has it)", "Ticked: apps are pushed to IPv4 so every adapter is used. Unticked: IPv6 is allowed and funnels onto the adapters that have it.", u.bal.V6Mode() == engine.V6Auto)
 	u.autoItem = systray.AddMenuItemCheckbox("Pause when there is only one connection", "Pauses merging by itself when fewer than two connections have internet, and starts it again when a second one works. Pausing or starting by hand always wins.", u.ap.enabled)
-	u.signInItem = systray.AddMenuItemCheckbox("Start at sign-in", "Starts net-merge when you sign in, with no password or admin prompt.", platform.AutostartEnabled())
+	u.signInItem = systray.AddMenuItemCheckbox("Start at sign-in", "Starts mergelanes when you sign in, with no password or admin prompt.", platform.AutostartEnabled())
 	u.toggleItem = systray.AddMenuItem("Start merging", "")
-	u.versionItem = systray.AddMenuItem(versionLabel(u.version), "The version of net-merge that is running (the same as net-merge version). Click to open the release page on GitHub.")
+	u.versionItem = systray.AddMenuItem(versionLabel(u.version), "The version of mergelanes that is running (the same as mergelanes version). Click to open the release page on GitHub.")
 	quit := systray.AddMenuItem("Quit", "Turns system-wide mode off and exits")
 	go u.watchUpdates()
 
@@ -152,6 +157,8 @@ func (u *trayUI) onReady() {
 				if err := platform.OpenURL(update.ReleasesURL); err != nil {
 					logx.Printf("error: opening the release page: %v\n", err)
 				}
+			case c := <-u.apps.clicks:
+				u.applyApp(c)
 			case c := <-u.limitClicks:
 				if c.name != "" {
 					u.applyLimit(c.name, c.mbitPerSec)
@@ -162,10 +169,13 @@ func (u *trayUI) onReady() {
 				systray.Quit()
 				return
 			case <-tick.C:
-				if req, ok := state.TakeLimit(u.stateDir); ok { // `net-merge limit ...` from a terminal
+				if req, ok := state.TakeLimit(u.stateDir); ok { // `mergelanes limit ...` from a terminal
 					u.applyLimit(req.Adapter, req.Mbps)
 				}
-				switch { // `net-merge on|off|quit` from a terminal
+				if app, m, ok := state.TakeApp(u.stateDir); ok && u.pol != nil { // `mergelanes app ...`
+					u.setApp(app, m)
+				}
+				switch { // `mergelanes on|off|quit` from a terminal
 				case state.TakeMarker(u.stateDir, "quit"):
 					systray.Quit()
 					return
@@ -187,7 +197,7 @@ func (u *trayUI) onReady() {
 	}()
 }
 
-// manual is a switch by the user (menu or `net-merge on|off`), which pausing by itself must respect.
+// manual is a switch by the user (menu or `mergelanes on|off`), which pausing by itself must respect.
 func (u *trayUI) manual(on bool) {
 	u.ap.userSet(on, u.usable())
 	u.turn(on)
@@ -203,7 +213,7 @@ func (u *trayUI) usable() (n int) {
 	return n
 }
 
-// movingFlows is how many connections net-merge is relaying while data is really moving. Idle
+// movingFlows is how many connections mergelanes is relaying while data is really moving. Idle
 // keep-alive connections are always open, so they don't count and don't hold back a pause.
 func (u *trayUI) movingFlows() (n int64) {
 	var rate float64
@@ -254,7 +264,7 @@ func (u *trayUI) refresh() {
 	}
 
 	// Speeds are each adapter's real traffic from the OS's counters, i.e. every app (qBittorrent binds
-	// to adapters directly and never passes through net-merge), and they are shown even when paused.
+	// to adapters directly and never passes through mergelanes), and they are shown even when paused.
 	var live []engine.SlotStats
 	var down, up float64
 	for _, s := range u.sched.Snapshot() {
@@ -291,8 +301,9 @@ func (u *trayUI) refresh() {
 			txt += "  limit " + limitText(s.LimitMbps)
 		}
 		if on {
-			txt += fmt.Sprintf("  (%d flows via net-merge)", s.Active)
+			txt += fmt.Sprintf("  (%d flows)", s.Active)
 		}
+		txt += laneNote(s, on)
 		if s.State != "up" && s.State6 != "up" { // neither family verified yet, or no internet
 			txt += "  - " + s.State
 		}
@@ -306,6 +317,8 @@ func (u *trayUI) refresh() {
 		}
 		u.showLimit(i, s.LimitMbps)
 	}
+
+	u.apps.refresh(u.pol, u.adapterNames())
 
 	// Hover tooltip: one line per adapter, so speeds are visible without opening the menu.
 	tip := trayTooltip(state, down, up, live)
@@ -374,7 +387,7 @@ func trayTooltip(state string, down, up float64, live []engine.SlotStats) string
 	}
 	leanest := build(state, false, "")
 	for _, t := range []string{
-		build("net-merge · "+state, true, " Mbps"),
+		build("MergeLanes · "+state, true, " Mbps"),
 		build(state, true, " Mbps"),
 		build(state, false, " Mbps"),
 		leanest,
@@ -429,7 +442,7 @@ var limitPresets = []float64{1, 2, 5, 10, 20, 50, 100}
 
 type limitClick struct {
 	row        int
-	name       string // set by `net-merge limit`, which knows the adapter by name, not row
+	name       string // set by `mergelanes limit`, which knows the adapter by name, not row
 	mbitPerSec float64
 }
 

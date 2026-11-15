@@ -8,9 +8,9 @@ body:
   - type: input
     id: version
     attributes:
-      label: net-merge version
-      description: Run `net-merge version`, or look at the line above *Quit* in the tray menu. On Android, the version is in Settings, Apps, net-merge.
-      placeholder: "0.3.4"
+      label: MergeLanes version
+      description: Run `mergelanes version`, or look at the line above *Quit* in the tray menu.
+      placeholder: "0.1.0"
     validations:
       required: true
   - type: dropdown
@@ -22,7 +22,6 @@ body:
         - Windows 10
         - macOS
         - Linux
-        - Android
         - Other
     validations:
       required: true
@@ -30,7 +29,7 @@ body:
     id: os-version
     attributes:
       label: OS version
-      placeholder: Windows 11 24H2, macOS 15.3, Ubuntu 24.04, Android 15
+      placeholder: Windows 11 24H2, macOS 15.3, Ubuntu 24.04
     validations:
       required: true
   - type: dropdown
@@ -38,13 +37,10 @@ body:
     attributes:
       label: How did you install it?
       options:
-        - Install script
-        - net-merge-setup.exe
-        - winget
-        - Homebrew
-        - Linux package (apt, dnf, zypper, apk, pacman)
-        - Portable zip or by hand
-        - Android APK
+        - mergelanes-setup.exe
+        - Portable zip
+        - Linux package (.deb, .rpm, .apk, Arch)
+        - Tarball (Linux or macOS)
         - Built from source
     validations:
       required: true
@@ -59,7 +55,7 @@ body:
   - type: textarea
     id: list
     attributes:
-      label: Output of `net-merge list`
+      label: Output of `mergelanes list`
       render: text
     validations:
       required: true
@@ -75,17 +71,17 @@ body:
     attributes:
       label: Log
       description: |
-        The last 30 lines of the log file. If you started net-merge from a terminal, copy what the terminal shows instead.
-        - Windows: press Win+R, paste `%LOCALAPPDATA%\net-merge\net-merge.log` and press Enter
-        - macOS: `/var/run/net-merge/net-merge.log`
-        - Linux: `~/.cache/net-merge/net-merge.log`
+        The last 30 lines of the log file. If you started mergelanes from a terminal, copy what the terminal shows instead.
+        - Windows: press Win+R, paste `%LOCALAPPDATA%\mergelanes\mergelanes.log` and press Enter
+        - macOS: `/var/run/Guidin9/mergelanes.log`
+        - Linux: `~/.cache/Guidin9/mergelanes.log`
       render: text
     validations:
       required: true
   - type: textarea
     id: status
     attributes:
-      label: Output of `net-merge status` (while it is on)
+      label: Output of `mergelanes status` (while it is on)
       render: text
   - type: checkboxes
     id: checks

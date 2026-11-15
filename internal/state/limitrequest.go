@@ -43,17 +43,9 @@ func SendLimit(dir string, req LimitRequest) error {
 	return os.Rename(tmp, limitRequestPath(dir))
 }
 
-// TakeLimit consumes a pending request. The file is renamed aside before it is read, so a request
-// that arrives at the same moment cannot be deleted unread.
+// TakeLimit consumes a pending request.
 func TakeLimit(dir string) (LimitRequest, bool) {
-	p := limitRequestPath(dir)
-	taken := p + ".taken"
-	os.Remove(taken) // left over if an earlier read failed
-	if err := os.Rename(p, taken); err != nil {
-		return LimitRequest{}, false
-	}
-	b, ok := readLimitRequest(taken)
-	os.Remove(taken)
+	b, ok := takeRequest(limitRequestPath(dir))
 	if !ok {
 		return LimitRequest{}, false
 	}
@@ -62,6 +54,19 @@ func TakeLimit(dir string) (LimitRequest, bool) {
 		return LimitRequest{}, false
 	}
 	return req, true
+}
+
+// takeRequest consumes a request file in ctl/. It is renamed aside before it is read, so a request
+// that arrives at the same moment cannot be deleted unread.
+func takeRequest(p string) ([]byte, bool) {
+	taken := p + ".taken"
+	os.Remove(taken) // left over if an earlier read failed
+	if err := os.Rename(p, taken); err != nil {
+		return nil, false
+	}
+	b, ok := readLimitRequest(taken)
+	os.Remove(taken)
+	return b, ok
 }
 
 // readLimitRequest reads a request file if it is a small regular file. Opening it must not follow a

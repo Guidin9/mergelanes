@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,20 +17,21 @@ import (
 	"golang.org/x/sys/windows"
 	wun "golang.zx2c4.com/wireguard/tun"
 
-	"net-merge/internal/logx"
-	"net-merge/internal/nics"
+	"mergelanes/internal/logx"
+	"mergelanes/internal/nics"
+	"mergelanes/internal/platform"
 )
 
-const openHint = "needs admin and wintun.dll next to net-merge.exe"
+const openHint = "needs admin and wintun.dll next to mergelanes.exe"
 
 // routes4 as `route` wants them: destination and mask.
 var routes4win = [][2]string{{"0.0.0.0", "128.0.0.0"}, {"128.0.0.0", "128.0.0.0"}}
 
 func init() {
 	staleHook = restoreStrongHost
-	wun.WintunTunnelType = "net-merge"
+	wun.WintunTunnelType = "mergelanes"
 	// A fixed GUID keeps one Windows network profile instead of a new "Unidentified network" per run.
-	if g, err := windows.GUIDFromString("{3f0d5a7e-9b1c-4e52-8a47-1c6b2d9e5f30}"); err == nil {
+	if g, err := windows.GUIDFromString("{b8e4c2a1-6f3d-4a9e-9c27-5d1e8f0b3a64}"); err == nil {
 		wun.WintunStaticRequestedGUID = &g
 	}
 }
@@ -101,8 +103,9 @@ func delRoutes(idx int) {
 	}
 }
 
+// run starts a Windows tool (netsh, route) by its full path in System32.
 func run(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
+	cmd := exec.Command(platform.SystemTool(name+".exe"), args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -148,7 +151,17 @@ var strongHost struct {
 	stop    chan struct{}
 }
 
-var strongHostFile = filepath.Join(os.TempDir(), "net-merge-weakhost.txt")
+// strongHostFile remembers what to put back. It lives in the elevated process's own folder: the
+// settings are read back and handed to netsh as admin, so no other program may be able to write them.
+func strongHostFile() string {
+	if platform.StateDir == "" {
+		return ""
+	}
+	return filepath.Join(platform.StateDir, "weakhost.txt")
+}
+
+// restoreLine is the only form a remembered setting may have; anything else is ignored.
+var restoreLine = regexp.MustCompile(`^ipv[46] [0-9]{1,10} weakhostsend=(enabled|disabled) forwarding=(enabled|disabled)$`)
 
 func startStrongHost(tunIdx int) {
 	stop := make(chan struct{})
@@ -189,7 +202,7 @@ func syncStrongHost(stop chan struct{}) {
 	}
 	// Get-NetIPInterface prints enum names, which unlike netsh's output are not translated.
 	// HideWindow: without it, every new adapter flashes a PowerShell console (#10).
-	ps := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command",
+	ps := exec.Command(platform.PowerShell(), "-NoProfile", "-NonInteractive", "-Command",
 		"Get-NetIPInterface -InterfaceIndex "+strings.Join(idx, ",")+" -ErrorAction SilentlyContinue | "+
 			"Where-Object { $_.WeakHostSend -eq 'Enabled' -or $_.Forwarding -eq 'Enabled' } | "+
 			"ForEach-Object { '{0} {1} {2} {3}' -f $_.AddressFamily, $_.InterfaceIndex, $_.WeakHostSend, $_.Forwarding }")
@@ -216,9 +229,11 @@ func syncStrongHost(stop chan struct{}) {
 		strongHost.restore = append(strongHost.restore, fmt.Sprintf("%s %s weakhostsend=%s forwarding=%s",
 			fam, f[1], strings.ToLower(f[2]), strings.ToLower(f[3])))
 		logx.Printf("note: turned off weak host send and forwarding on adapter %s (%s) while merging; "+
-			"Windows ignores pinned connections there. Sharing its connection (Mobile Hotspot) pauses until net-merge is off.\n", f[1], f[0])
+			"Windows ignores pinned connections there. Sharing its connection (Mobile Hotspot) pauses until mergelanes is off.\n", f[1], f[0])
 	}
-	os.WriteFile(strongHostFile, []byte(strings.Join(strongHost.restore, "\n")), 0o600)
+	if f := strongHostFile(); f != "" {
+		os.WriteFile(f, []byte(strings.Join(strongHost.restore, "\n")), 0o600)
+	}
 }
 
 func stopStrongHost() {
@@ -230,21 +245,31 @@ func stopStrongHost() {
 	}
 	putBack(strongHost.restore)
 	strongHost.restore = nil
-	os.Remove(strongHostFile)
+	if f := strongHostFile(); f != "" {
+		os.Remove(f)
+	}
 }
 
 // restoreStrongHost puts back what a crashed run turned off.
 func restoreStrongHost() {
-	b, err := os.ReadFile(strongHostFile)
+	f := strongHostFile()
+	if f == "" {
+		return
+	}
+	b, err := os.ReadFile(f)
 	if err != nil {
 		return
 	}
 	putBack(strings.Split(strings.TrimSpace(string(b)), "\n"))
-	os.Remove(strongHostFile)
+	os.Remove(f)
 }
 
 func putBack(lines []string) {
 	for _, l := range lines {
+		l = strings.TrimSpace(l)
+		if !restoreLine.MatchString(l) {
+			continue
+		}
 		f := strings.Fields(l) // ipv4 14 weakhostsend=enabled forwarding=disabled
 		if len(f) == 4 {
 			run("netsh", "interface", f[0], "set", "interface", "interface="+f[1], f[2], f[3], "store=active")

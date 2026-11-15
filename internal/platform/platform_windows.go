@@ -13,18 +13,18 @@ import (
 
 func IsAdmin() bool { return windows.GetCurrentProcessToken().IsElevated() }
 
-// SingleInstance is false if another net-merge (run or tray) already owns the TUN.
+// SingleInstance is false if another mergelanes (run or tray) already owns the TUN.
 // The mutex handle is intentionally kept for the life of the process.
 func SingleInstance() bool {
-	name, _ := windows.UTF16PtrFromString(`Global\net-merge`)
+	name, _ := windows.UTF16PtrFromString(`Global\mergelanes`)
 	_, err := windows.CreateMutex(nil, false, name)
 	return err != windows.ERROR_ALREADY_EXISTS
 }
 
-// InstanceRunning reports whether an (elevated) net-merge holds the mutex. From a normal shell
+// InstanceRunning reports whether an (elevated) mergelanes holds the mutex. From a normal shell
 // OpenMutex is denied rather than succeeding, which also means it exists.
 func InstanceRunning() bool {
-	name, _ := windows.UTF16PtrFromString(`Global\net-merge`)
+	name, _ := windows.UTF16PtrFromString(`Global\mergelanes`)
 	h, err := windows.OpenMutex(windows.SYNCHRONIZE, false, name)
 	if err == nil {
 		windows.CloseHandle(h)
@@ -69,7 +69,11 @@ func RelaunchElevated(args []string, hidden bool) error {
 // could not reach the browser that is already open. DETACHED_PROCESS keeps it off our console, which
 // would otherwise make a console window appear next to the tray.
 func OpenURL(url string) error {
-	cmd := exec.Command("explorer.exe", url)
+	winDir, err := windows.GetWindowsDirectory()
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(filepath.Join(winDir, "explorer.exe"), url)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		HideWindow:    true,
 		CreationFlags: windows.DETACHED_PROCESS | windows.CREATE_NEW_PROCESS_GROUP,

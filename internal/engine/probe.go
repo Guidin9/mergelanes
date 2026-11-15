@@ -4,7 +4,7 @@ import (
 	"net"
 	"time"
 
-	"net-merge/internal/nics"
+	"mergelanes/internal/nics"
 )
 
 // Internet reachability probes: a TCP connect to a well-known anycast IP, bound to the NIC.
@@ -19,10 +19,12 @@ const (
 	probeEveryDown = 4 * time.Second
 )
 
-func probe(sl *Slot, f Family) bool {
+// probe reports whether the adapter reaches the internet, and how long the TCP handshake took
+// (the latency LaneFastest goes by).
+func probe(sl *Slot, f Family) (bool, time.Duration) {
 	ip := sl.ip(f)
 	if ip == nil {
-		return false
+		return false, 0
 	}
 	network := "tcp4"
 	if f == Fam6 {
@@ -30,12 +32,14 @@ func probe(sl *Slot, f Family) bool {
 	}
 	for _, t := range probeTargets[f] {
 		d := net.Dialer{LocalAddr: &net.TCPAddr{IP: ip}, Control: nics.ForceEgress(sl.Index, f == Fam6), Timeout: probeTimeout}
+		start := time.Now()
 		if c, err := d.Dial(network, t); err == nil {
+			rtt := time.Since(start)
 			c.Close()
-			return true
+			return true, rtt
 		}
 	}
-	return false
+	return false, 0
 }
 
 type probeJob struct {
@@ -59,7 +63,11 @@ func (s *Scheduler) RunProbes(stop <-chan struct{}) {
 		for _, j := range s.probeDue() {
 			go func() {
 				defer j.sl.probing[j.f].Store(false)
-				s.SetState(j.sl, j.f, probe(j.sl, j.f))
+				up, rtt := probe(j.sl, j.f)
+				if up {
+					s.NoteRTT(j.sl, j.f, rtt)
+				}
+				s.SetState(j.sl, j.f, up)
 			}()
 		}
 	}

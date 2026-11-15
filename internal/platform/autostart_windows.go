@@ -11,12 +11,12 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-const taskName = "net-merge"
+const taskName = "MergeLanes"
 
 // trayExe prefers the windowless tray build installed next to this exe.
 func trayExe() string {
 	exe, _ := os.Executable()
-	gui := filepath.Join(filepath.Dir(exe), "net-merge-tray.exe")
+	gui := filepath.Join(filepath.Dir(exe), "mergelanes-tray.exe")
 	if _, err := os.Stat(gui); err == nil {
 		return gui
 	}
@@ -33,7 +33,7 @@ func xmlEscape(s string) string {
 func taskXML(user, exe string) string {
 	return `<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <RegistrationInfo><Description>Starts net-merge (multi-adapter connection balancer) at sign-in.</Description></RegistrationInfo>
+  <RegistrationInfo><Description>Starts mergelanes (multi-adapter connection balancer) at sign-in.</Description></RegistrationInfo>
   <Triggers><LogonTrigger><Enabled>true</Enabled><UserId>` + xmlEscape(user) + `</UserId><Delay>PT10S</Delay></LogonTrigger></Triggers>
   <Principals><Principal id="Author"><UserId>` + xmlEscape(user) + `</UserId><LogonType>InteractiveToken</LogonType><RunLevel>HighestAvailable</RunLevel></Principal></Principals>
   <Settings>
@@ -87,14 +87,19 @@ func Autostart(action string) error {
 	if err := SetAutostart(true); err != nil {
 		return err
 	}
-	fmt.Println("autostart is ON: net-merge starts at sign-in without a UAC prompt.")
+	fmt.Println("autostart is ON: mergelanes starts at sign-in without a UAC prompt.")
 	return nil
 }
 
-// AutostartEnabled reports whether net-merge starts at sign-in.
+// AutostartEnabled reports whether mergelanes starts at sign-in.
 func AutostartEnabled() bool { return run("schtasks", "/Query", "/TN", taskName) == nil }
 
 // SetAutostart adds or removes the sign-in task. It needs admin, which the tray has.
+//
+// The task starts the tray elevated with no prompt, so it may only point at a copy in Program Files:
+// a portable copy in a folder the user can write to would let any program that replaces it run as
+// admin at every sign-in. The task's XML is written to the elevated process's own folder
+// (StateDir), not %TEMP%, where another program could swap it before schtasks reads it.
 func SetAutostart(on bool) error {
 	if !on {
 		if !AutostartEnabled() {
@@ -102,12 +107,19 @@ func SetAutostart(on bool) error {
 		}
 		return run("schtasks", "/Delete", "/F", "/TN", taskName)
 	}
+	exe := trayExe()
+	if !installedUnderProgramFiles(exe) {
+		return fmt.Errorf("start at sign-in needs the installed MergeLanes (in Program Files); this copy is in %s", filepath.Dir(exe))
+	}
+	if StateDir == "" {
+		return fmt.Errorf("start at sign-in: no state folder")
+	}
 	user := os.Getenv("USERNAME")
 	if d := os.Getenv("USERDOMAIN"); d != "" {
 		user = d + `\` + user
 	}
-	tmp := filepath.Join(os.TempDir(), "net-merge-task.xml")
-	if err := os.WriteFile(tmp, utf16le(taskXML(user, trayExe())), 0o600); err != nil {
+	tmp := filepath.Join(StateDir, "task.xml")
+	if err := os.WriteFile(tmp, utf16le(taskXML(user, exe)), 0o600); err != nil {
 		return err
 	}
 	defer os.Remove(tmp)
@@ -123,6 +135,6 @@ func HasConsole() bool {
 // ShowError is how the windowless build reports a fatal error: there is no console to print to.
 func ShowError(msg string) {
 	t, _ := windows.UTF16PtrFromString(msg)
-	c, _ := windows.UTF16PtrFromString("net-merge")
+	c, _ := windows.UTF16PtrFromString("mergelanes")
 	windows.MessageBox(0, t, c, windows.MB_OK|windows.MB_ICONERROR)
 }

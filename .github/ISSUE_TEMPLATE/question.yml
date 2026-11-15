@@ -12,8 +12,8 @@ body:
     id: setup
     attributes:
       label: Your setup
-      description: Your operating system, your net-merge version and your connections.
-      placeholder: Windows 11, net-merge 0.3.4, Wi-Fi from my home router, and my phone over USB.
+      description: Your operating system, your mergelanes version and your connections.
+      placeholder: Windows 11, mergelanes 0.3.4, Wi-Fi from my home router, and my phone over USB.
     validations:
       required: true
   - type: checkboxes

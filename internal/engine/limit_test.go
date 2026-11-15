@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"net-merge/internal/nics"
+	"mergelanes/internal/nics"
 )
 
 func TestParseLimit(t *testing.T) {

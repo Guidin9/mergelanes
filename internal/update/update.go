@@ -13,7 +13,7 @@ import (
 )
 
 // Repo is where releases are read from.
-const Repo = "net-merge/net-merge"
+const Repo = "Guidin9/mergelanes"
 
 // ReleasesURL is what the tray opens: GitHub redirects it to the newest release.
 const ReleasesURL = "https://github.com/" + Repo + "/releases/latest"
@@ -30,7 +30,7 @@ func Latest(ctx context.Context) (string, error) {
 		return "", err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "net-merge")
+	req.Header.Set("User-Agent", "mergelanes")
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
