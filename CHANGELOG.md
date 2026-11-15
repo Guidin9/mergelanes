@@ -12,6 +12,9 @@ entry here before pushing a version tag.
   within 15 ms of the last look at Windows' connection table, MergeLanes could skip looking again and treat
   it as an unknown app, so its rule did not apply to that connection. Windows' clock moves in 15 ms steps
   on an idle PC; the lookups are now counted instead of timed.
+- **Windows: ping is measured to the microsecond.** For the same reason, a link with less than 15 ms of
+  latency could be measured as 0 (unmeasured) or 15 ms, so *Lowest ping* could pick the slower link. The
+  probe now times its handshake with Windows' performance counter.
 
 ## [0.1.0] - 2026-11-15
 

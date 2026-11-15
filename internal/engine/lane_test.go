@@ -37,3 +37,16 @@ func TestAddressChangeForgetsLatency(t *testing.T) {
 		t.Errorf("latency after an address change = %v, want 0", r)
 	}
 }
+
+// The handshake timer must resolve well below Windows' 15.6 ms clock step.
+func TestClockResolvesSubMillisecond(t *testing.T) {
+	s := clockNow()
+	var x int
+	for i := range 100000 {
+		x += i
+	}
+	_ = x
+	if d := s.elapsed(); d <= 0 || d > time.Second {
+		t.Errorf("elapsed = %v, want a small positive duration", d)
+	}
+}

@@ -32,9 +32,9 @@ func probe(sl *Slot, f Family) (bool, time.Duration) {
 	}
 	for _, t := range probeTargets[f] {
 		d := net.Dialer{LocalAddr: &net.TCPAddr{IP: ip}, Control: nics.ForceEgress(sl.Index, f == Fam6), Timeout: probeTimeout}
-		start := time.Now()
+		start := clockNow()
 		if c, err := d.Dial(network, t); err == nil {
-			rtt := time.Since(start)
+			rtt := start.elapsed()
 			c.Close()
 			return true, rtt
 		}
