@@ -34,6 +34,8 @@ const usage = `mergelanes: use all your network adapters at once, with a lane fo
   mergelanes limit      list the saved speed limits
   mergelanes apps       list the apps seen recently and their lanes
   mergelanes app <app> auto|merge|fastest|<adapter>   set an app's lane (e.g. app steam.exe merge)
+  mergelanes chat       Windows: chat window to set lanes and ask about connections in plain language
+  mergelanes ask "..."  the same chat in a terminal (no text: a conversation); -set-key saves a Gemini API key from stdin
   mergelanes socks      plain SOCKS5 proxy on 127.0.0.1:1080 (no admin, per-app)
   mergelanes list       show detected adapters
   mergelanes autostart on|off|status   start the tray at sign-in (Windows: no UAC prompt)
@@ -288,6 +290,10 @@ func main() {
 		cmdApps(args)
 	case "app":
 		cmdApp(args)
+	case "chat":
+		cmdChat(args)
+	case "ask":
+		cmdAsk(args)
 	case "socks":
 		cmdSocks(args)
 	case "list":
@@ -449,25 +455,29 @@ func cmdControl(name string, args []string) {
 		}
 		die(fmt.Errorf("mergelanes is not running; start it with `mergelanes tray`"))
 	}
-	_, wasOn := state.Read(*dir)
-	if err := state.SendMarker(*dir, name); err != nil {
+	if err := controlApply(*dir, name); err != nil {
 		die(err)
 	}
-	want := name == "on"
+	if name == "on" {
+		fmt.Println("mergelanes is ON.")
+	} else {
+		fmt.Println("mergelanes is OFF.")
+	}
+}
+
+// controlApply sends on, off or quit to the running instance and waits until it takes effect. Like
+// the tray menu, it is a switch by hand, so pausing by itself respects it.
+func controlApply(dir, name string) error {
+	if err := state.SendMarker(dir, name); err != nil {
+		return err
+	}
 	for i := 0; i < 60; i++ {
 		time.Sleep(150 * time.Millisecond)
-		_, on := state.Read(*dir)
-		switch {
-		case name == "on" && on == want:
-			fmt.Println("mergelanes is ON.")
-			return
-		case name != "on" && !on:
-			fmt.Println("mergelanes is OFF.")
-			return
+		if _, on := state.Read(dir); on == (name == "on") {
+			return nil
 		}
 	}
-	_ = wasOn
-	die(fmt.Errorf("sent %q but it did not take effect (does this instance support it? run: mergelanes tray)", name))
+	return fmt.Errorf("sent %q but it did not take effect (does this instance support it? run: mergelanes tray)", name)
 }
 
 func cmdStatus(args []string) {

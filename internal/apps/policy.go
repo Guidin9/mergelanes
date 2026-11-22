@@ -95,6 +95,9 @@ type AppStat struct {
 	Adapter string    // the adapter its last flow went out on
 	Flows   int64     // flows since MergeLanes started
 	Last    time.Time // when it last opened a flow
+	// ByAdapter counts the app's connected flows per adapter since MergeLanes started or its rule
+	// last changed, so "which connection does it use" has an answer for a merged app too.
+	ByAdapter map[string]int64 `json:",omitempty"`
 }
 
 // Policy is safe for concurrent use: Decide runs once per new flow on the TUN's goroutines.
@@ -185,6 +188,12 @@ func (p *Policy) Note(app string, lane engine.Lane, adapter string) {
 	defer p.mu.Unlock()
 	if st := p.recent[Key(app)]; st != nil {
 		st.Lane, st.Adapter = lane.String(), adapter
+		if adapter != "" {
+			if st.ByAdapter == nil {
+				st.ByAdapter = map[string]int64{}
+			}
+			st.ByAdapter[adapter]++
+		}
 	}
 }
 
@@ -196,6 +205,11 @@ func (p *Policy) SetRule(app string, m Mode) {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if old := p.rules[k]; old != m {
+		if st := p.recent[k]; st != nil {
+			st.ByAdapter = nil // count where flows go under the new rule
+		}
+	}
 	if m.Kind == ModeAuto {
 		delete(p.rules, k)
 	} else {
@@ -246,6 +260,12 @@ func (p *Policy) Recent(within time.Duration, max int) []AppStat {
 		}
 		s := *st
 		s.Mode = p.rules[k].String()
+		if st.ByAdapter != nil {
+			s.ByAdapter = make(map[string]int64, len(st.ByAdapter))
+			for a, n := range st.ByAdapter {
+				s.ByAdapter[a] = n
+			}
+		}
 		out = append(out, s)
 	}
 	p.mu.Unlock()

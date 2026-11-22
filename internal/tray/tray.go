@@ -55,7 +55,7 @@ type trayUI struct {
 	limitPreset [trayRows][]*systray.MenuItem
 
 	header, toggleItem, v6Item, autoItem, signInItem *systray.MenuItem
-	versionItem                                      *systray.MenuItem
+	versionItem, chatItem                            *systray.MenuItem
 	rows                                             []*systray.MenuItem
 	lastOn                                           *bool
 	lastHeader                                       string
@@ -71,6 +71,17 @@ func (u *trayUI) onReady() {
 	}
 	systray.SetIcon(u.iconOff)
 	systray.SetTooltip("MergeLanes")
+	if platform.ChatWindow {
+		// A left click opens the chat, the quickest way to change something; the right click still
+		// shows this menu. The chat window is single-instance, so clicking again brings it forward.
+		systray.SetOnTapped(func() {
+			go func() {
+				if err := platform.OpenChat(); err != nil {
+					logx.Printf("error: opening the chat: %v\n", err)
+				}
+			}()
+		})
+	}
 	u.header = systray.AddMenuItem("MergeLanes", "")
 	u.header.Disable()
 	systray.AddSeparator()
@@ -98,6 +109,9 @@ func (u *trayUI) onReady() {
 	}
 	systray.AddSeparator()
 	u.apps.build()
+	if platform.ChatWindow {
+		u.chatItem = systray.AddMenuItem("Chat…", "Change each app's connection and ask about your connections in plain language")
+	}
 	systray.AddSeparator()
 	u.v6Item = systray.AddMenuItemCheckbox("Use all adapters (IPv6 only if every adapter has it)", "Ticked: apps are pushed to IPv4 so every adapter is used. Unticked: IPv6 is allowed and funnels onto the adapters that have it.", u.bal.V6Mode() == engine.V6Auto)
 	u.autoItem = systray.AddMenuItemCheckbox("Pause when there is only one connection", "Pauses merging by itself when fewer than two connections have internet, and starts it again when a second one works. Pausing or starting by hand always wins.", u.ap.enabled)
@@ -122,6 +136,10 @@ func (u *trayUI) onReady() {
 		}
 		tick := time.NewTicker(time.Second)
 		defer tick.Stop()
+		var chatClicks chan struct{} // nil, so never ready, where there is no chat item
+		if u.chatItem != nil {
+			chatClicks = u.chatItem.ClickedCh
+		}
 		for {
 			u.refresh()
 			select {
@@ -152,6 +170,10 @@ func (u *trayUI) onReady() {
 				} else {
 					u.v6Item.Check()
 					u.bal.SetV6Mode(engine.V6Auto)
+				}
+			case <-chatClicks:
+				if err := platform.OpenChat(); err != nil {
+					logx.Printf("error: opening the chat: %v\n", err)
 				}
 			case <-u.versionItem.ClickedCh:
 				if err := platform.OpenURL(update.ReleasesURL); err != nil {

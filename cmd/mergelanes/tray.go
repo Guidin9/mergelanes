@@ -25,6 +25,13 @@ func cmdTray(args []string) {
 	autoPause := fs.Bool("auto-pause", true, "pause by itself when fewer than two connections work, and resume when two do (pausing by hand always wins)")
 	fs.Parse(args)
 
+	if platform.ChatWindow && !platform.IsAdmin() && platform.InstanceRunning() {
+		// The tray is already running: this is the shortcut clicked again, or the tray's Chat item,
+		// which starts this exe as the signed-in user. Open the chat rather than asking for admin to
+		// say "already running".
+		cmdChat(nil)
+		return
+	}
 	if !platform.IsAdmin() {
 		child := append([]string{"tray"}, args...)
 		if c.stateDir != state.DefaultDir() { // the macOS passwordless rule only matches a bare `tray`

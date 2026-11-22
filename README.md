@@ -109,6 +109,27 @@ App names are the program's file name and are matched without case (`Steam.exe`,
 are the same app). On macOS and Linux MergeLanes cannot see which app owns a connection yet, so every app
 follows Auto there.
 
+### Chat
+
+Instead of the menus, say what you want: click the tray icon (right-click it for the menu), pick
+**Chat…** in the menu, or click the MergeLanes shortcut while it is already running, and type, in any
+language:
+
+- *"Spotify on Wi-Fi, Brave on Ethernet"*: sets both lanes.
+- *"Which connection does Brave use?"*: its lane and how its connections were split over the adapters.
+- *"Which mode should Discord use?"*: a recommendation with the reason. Nothing changes until you say so.
+- *"How are my connections doing?"*, *"Limit Wi-Fi to 5 Mbit/s"*, *"Pause merging"*.
+
+The chat runs on Google's Gemini API with your own API key; a free one from
+[Google AI Studio](https://aistudio.google.com/apikey) is enough. Paste it in the chat's settings, or run
+`mergelanes ask -set-key` and paste it. MergeLanes tries the fast Flash-Lite models first and moves on to
+the next one by itself when a model is busy, out of free quota or retired by Google, so there is nothing to
+pick or update. `mergelanes ask "..."` is the same chat in a terminal, on every OS.
+
+On the free tier, what you type and the names of your apps and connections go to Google, which may use them
+to improve its products. The content of your traffic is never sent. The window is Windows-only for now (it
+uses the WebView2 Runtime that ships with Windows 11).
+
 ## Add a second connection
 
 MergeLanes needs **two or more** connections that reach the internet on their own path. Use Wi-Fi plus a
@@ -152,6 +173,8 @@ mergelanes quit            pause and close the tray
 mergelanes status | list   live numbers / which connections are used
 mergelanes apps            apps seen recently and their lanes
 mergelanes app <app> auto|merge|fastest|<adapter>
+mergelanes chat            Windows: the chat window
+mergelanes ask "..."       the chat in a terminal; ask -set-key saves a Gemini API key
 mergelanes limit <adapter> <Mbit/s>
 mergelanes autostart on|off|status
 mergelanes socks           plain SOCKS5 proxy on 127.0.0.1:1080 (no admin, per app)
@@ -220,8 +243,10 @@ the second one and it starts by itself after a few seconds, or choose *Start mer
 MergeLanes needs admin rights on Windows (`CAP_NET_ADMIN` on Linux, `sudo mergelanes install` once on
 macOS). On Windows the elevated tray keeps everything it writes in `%ProgramData%\MergeLanes`, which only
 administrators can change, runs Windows tools by their full path, and only lets the copy installed in
-Program Files start at sign-in. MergeLanes is not a VPN: traffic leaves each adapter as it normally would,
-unencrypted by MergeLanes. Found a problem? See [SECURITY.md](SECURITY.md).
+Program Files start at sign-in. The chat never runs elevated: it is a separate process of the signed-in
+user, which changes settings through the same folder as the `mergelanes app` command, and keeps the Gemini
+API key in that user's profile, encrypted with Windows DPAPI. MergeLanes is not a VPN: traffic leaves each
+adapter as it normally would, unencrypted by MergeLanes. Found a problem? See [SECURITY.md](SECURITY.md).
 
 ## Uninstall
 

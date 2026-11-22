@@ -12,6 +12,8 @@ MergeLanes is licensed GPL-3.0-or-later (see `LICENSE`). It is a fork of
 | [wireguard-go](https://git.zx2c4.com/wireguard-go) / [wintun Go bindings](https://git.zx2c4.com/wintun-go) | MIT | Windows TUN device access |
 | [fyne.io/systray](https://github.com/fyne-io/systray) | Apache-2.0 | system tray icon |
 | [vishvananda/netlink](https://github.com/vishvananda/netlink) | Apache-2.0 | Linux TUN addresses and routes, default-route discovery |
+| [jchv/go-webview2](https://github.com/jchv/go-webview2) | MIT | Windows chat window (WebView2) |
+| [jchv/go-winloader](https://github.com/jchv/go-winloader) | ISC | loads the WebView2 loader for go-webview2 |
 | golang.org/x/sys, golang.org/x/net, golang.org/x/time, golang.org/x/crypto | BSD-3-Clause | Windows and Linux system APIs, support code |
 | Other transitive modules (see `go.mod` / `go.sum`) | MIT / Apache-2.0 / BSD | |
 

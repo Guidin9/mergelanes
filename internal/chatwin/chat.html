@@ -1,0 +1,354 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MergeLanes Chat</title>
+<style>
+:root {
+  --bg: #f3f3f3; --surface: #ffffff; --surface-2: #f9f9f9; --line: #e5e5e5;
+  --text: #1b1b1b; --muted: #616161; --faint: #8a8a8a;
+  --accent: #15803d; --accent-hover: #166534; --accent-soft: #dcfce7; --accent-ink: #ffffff;
+  --ok: #16a34a; --warn: #b45309; --bad: #c42b1c; --bad-soft: #fde7e9;
+  --shadow: 0 1px 2px rgba(0,0,0,.06), 0 2px 8px rgba(0,0,0,.04);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1f1f1f; --surface: #2b2b2b; --surface-2: #262626; --line: #3a3a3a;
+    --text: #f2f2f2; --muted: #b3b3b3; --faint: #8f8f8f;
+    --accent: #22c55e; --accent-hover: #4ade80; --accent-soft: #14361f; --accent-ink: #062b12;
+    --ok: #4ade80; --warn: #fbbf24; --bad: #ff99a4; --bad-soft: #442726;
+    --shadow: 0 1px 2px rgba(0,0,0,.4);
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font: 14px/1.45 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  display: flex; flex-direction: column; overflow: hidden;
+  -webkit-user-select: none; user-select: none;
+}
+button { font: inherit; color: inherit; }
+header { padding: 12px 14px 10px; display: flex; flex-direction: column; gap: 6px; border-bottom: 1px solid var(--line); background: var(--surface-2); }
+.top { display: flex; align-items: center; gap: 10px; }
+.brand { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 15px; flex: 1; }
+.brand img { width: 22px; height: 22px; }
+.brand img:not([src]) { visibility: hidden; }
+.icon-btn { width: 32px; height: 32px; border: 0; border-radius: 6px; background: transparent; display: grid; place-items: center; cursor: pointer; color: var(--muted); }
+.icon-btn:hover { background: var(--line); color: var(--text); }
+.icon-btn:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+textarea:focus, textarea:focus-visible { outline: none; } /* the composer's border shows focus */
+.icon-btn svg { width: 18px; height: 18px; }
+.status { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; color: var(--muted); font-size: 12px; min-height: 18px; }
+.status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); display: inline-block; margin-right: 6px; vertical-align: 0; }
+.status .on .dot { background: var(--ok); }
+.status .off .dot { background: var(--warn); }
+.status .nic { font-variant-numeric: tabular-nums; }
+.status .nic.down { color: var(--bad); }
+
+main { flex: 1; overflow-y: auto; padding: 16px 14px 8px; display: flex; flex-direction: column; gap: 10px; }
+.empty { margin: auto 0; text-align: center; padding: 8px 6px 24px; }
+.empty h1 { font-size: 18px; font-weight: 600; margin: 0 0 6px; }
+.empty p { margin: 0 auto 18px; color: var(--muted); max-width: 300px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.chip { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 6px 12px; cursor: pointer; box-shadow: var(--shadow); }
+.chip:hover { border-color: var(--accent); }
+
+.msg { max-width: 86%; padding: 8px 12px; border-radius: 12px; white-space: pre-wrap; word-wrap: break-word; -webkit-user-select: text; user-select: text; }
+.msg.user { align-self: flex-end; background: var(--accent); color: var(--accent-ink); border-bottom-right-radius: 4px; }
+.msg.bot { align-self: flex-start; background: var(--surface); border: 1px solid var(--line); border-bottom-left-radius: 4px; box-shadow: var(--shadow); }
+.msg.err { align-self: flex-start; background: var(--bad-soft); color: var(--bad); border: 1px solid transparent; }
+.acts { align-self: flex-start; display: flex; flex-direction: column; gap: 4px; margin: -4px 0 0 2px; }
+.act { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.act .mark { font-weight: 700; color: var(--ok); }
+.act.fail .mark { color: var(--bad); }
+.typing { align-self: flex-start; display: flex; gap: 4px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; border-bottom-left-radius: 4px; }
+.typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); animation: blink 1.2s infinite ease-in-out; }
+.typing i:nth-child(2) { animation-delay: .15s; } .typing i:nth-child(3) { animation-delay: .3s; }
+@keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+
+footer { padding: 10px 12px 12px; border-top: 1px solid var(--line); background: var(--surface-2); }
+.composer { display: flex; align-items: flex-end; gap: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 6px 6px 6px 12px; }
+.composer:focus-within { border-color: var(--accent); }
+textarea { flex: 1; border: 0; outline: 0; resize: none; background: transparent; color: var(--text); font: inherit; max-height: 120px; padding: 5px 0; -webkit-user-select: text; user-select: text; }
+textarea::placeholder { color: var(--faint); }
+.send { width: 34px; height: 34px; border-radius: 8px; border: 0; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; cursor: pointer; flex: none; }
+.send:hover { background: var(--accent-hover); }
+.send:disabled { opacity: .45; cursor: default; }
+.send svg { width: 16px; height: 16px; }
+
+.sheet { position: fixed; inset: 0; background: var(--bg); display: none; flex-direction: column; }
+.sheet.open { display: flex; }
+.sheet .body { padding: 18px 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+.sheet h2 { font-size: 15px; margin: 0; font-weight: 600; }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field label { font-weight: 600; }
+.field input { border: 1px solid var(--line); background: var(--surface); color: var(--text); border-radius: 8px; padding: 8px 10px; font: inherit; -webkit-user-select: text; user-select: text; }
+.hint { color: var(--muted); font-size: 12px; margin: 0; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 7px 14px; cursor: pointer; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.primary:hover { background: var(--accent-hover); }
+.btn:disabled { opacity: .5; cursor: default; }
+.note { border-left: 3px solid var(--warn); padding: 8px 10px; background: var(--surface); border-radius: 6px; color: var(--muted); font-size: 12px; margin: 0; }
+.keymsg { font-size: 12px; min-height: 16px; margin: 0; }
+.keymsg.ok { color: var(--ok); } .keymsg.bad { color: var(--bad); }
+@media (prefers-reduced-motion: reduce) { .typing i { animation: none; opacity: .6; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <div class="brand">
+      <img id="logo" alt="" width="22" height="22">
+      <span>MergeLanes</span>
+    </div>
+    <button class="icon-btn" id="newchat" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
+    <button class="icon-btn" id="settings" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg></button>
+  </div>
+  <div class="status" id="status" aria-live="polite"></div>
+</header>
+
+<main id="log">
+  <div class="empty" id="empty">
+    <h1 data-t="emptyTitle"></h1>
+    <p data-t="emptySub"></p>
+    <div class="chips" id="chips"></div>
+  </div>
+</main>
+
+<footer>
+  <form class="composer" id="form">
+    <textarea id="input" rows="1"></textarea>
+    <button class="send" id="send" type="submit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+  </form>
+</footer>
+
+<section class="sheet" id="sheet" aria-modal="true" role="dialog">
+  <header><div class="top">
+    <div class="brand"><span data-t="settings"></span></div>
+    <button class="icon-btn" id="close" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+  </div></header>
+  <div class="body">
+    <div class="field">
+      <label for="key" data-t="keyLabel"></label>
+      <input id="key" type="password" autocomplete="off" spellcheck="false">
+      <p class="hint" id="keyState"></p>
+    </div>
+    <div class="row">
+      <button class="btn primary" id="save" type="button" data-t="save"></button>
+      <button class="btn" id="getkey" type="button" data-t="getKey"></button>
+    </div>
+    <p class="keymsg" id="keyMsg"></p>
+    <p class="note" data-t="privacy"></p>
+    <p class="hint" id="modelInfo"></p>
+  </div>
+</section>
+
+<script>
+"use strict";
+const tr = (navigator.language || "en").toLowerCase().startsWith("tr");
+const T = tr ? {
+  emptyTitle: "Ne yapmak istediğini yaz",
+  emptySub: "Hangi uygulama hangi hattı kullansın, hatlar nasıl gidiyor; sor ya da söyle, ben ayarlayayım.",
+  chips: ["Brave hangi hatta?", "Spotify'ı Wi-Fi'ye al", "Hatlar şu an nasıl?", "Wi-Fi'yi 5 Mbit ile sınırla"],
+  placeholder: "Bir şey yaz…", send: "Gönder", newChat: "Yeni sohbet", settings: "Ayarlar", close: "Kapat",
+  on: "Birleştirme açık", off: "Birleştirme kapalı", notRunning: "MergeLanes çalışmıyor", down: "bağlantı yok",
+  keyLabel: "Gemini API anahtarı", keySaved: "Bu kullanıcı için kayıtlı bir anahtar var. Değiştirmek için yenisini yapıştır.",
+  keyEnv: "Anahtar GEMINI_API_KEY ortam değişkeninden geliyor.", keyNone: "Henüz anahtar yok. Google AI Studio'dan ücretsiz alabilirsin.",
+  keyHelp: "Anahtar yalnızca bu Windows kullanıcısı için şifrelenip saklanır.",
+  save: "Kaydet", getKey: "Ücretsiz anahtar al", checking: "Kontrol ediliyor…", keyOk: "Anahtar çalışıyor ve kaydedildi.",
+  keyBad: "Google bu anahtarı kabul etmedi.", keyEmpty: "Önce anahtarı yapıştır.",
+  privacy: "Ücretsiz Gemini katmanında yazdıkların, uygulama ve bağlantı adları Google'a gider ve Google bunları ürünlerini geliştirmek için kullanabilir. Trafiğinin içeriği hiç gönderilmez.",
+  lastModel: "Son yanıtı veren model: ",
+  nokey: "Önce Ayarlar'dan bir Gemini API anahtarı gir.", badkey: "Google API anahtarını reddetti. Ayarlar'dan kontrol et.",
+  unavailable: "Gemini şu an yanıt vermiyor; ücretsiz katman yoğun olabilir. Birazdan tekrar dene.", other: "Bir şey ters gitti: ",
+  lane: { auto: "Otomatik", merge: "İki hattı birleştir", fastest: "En düşük ping", adapter: a => "Sadece " + a },
+  merging: on => on ? "Birleştirme açıldı" : "Birleştirme kapatıldı",
+  limit: (a, m) => m > 0 ? `${a} hız sınırı: ${m} Mbit/s` : `${a} hız sınırı kaldırıldı`,
+} : {
+  emptyTitle: "Tell me what you want",
+  emptySub: "Which app uses which connection, how your connections are doing: ask or say it, and I'll set it up.",
+  chips: ["Which connection does Brave use?", "Put Spotify on Wi-Fi", "How are my connections doing?", "Limit Wi-Fi to 5 Mbit/s"],
+  placeholder: "Type a message…", send: "Send", newChat: "New chat", settings: "Settings", close: "Close",
+  on: "Merging on", off: "Merging off", notRunning: "MergeLanes is not running", down: "no connection",
+  keyLabel: "Gemini API key", keySaved: "A key is saved for this user. Paste a new one to replace it.",
+  keyEnv: "The key comes from the GEMINI_API_KEY environment variable.", keyNone: "No key yet. You can get one for free from Google AI Studio.",
+  keyHelp: "The key is stored encrypted for this Windows user only.",
+  save: "Save", getKey: "Get a free key", checking: "Checking…", keyOk: "The key works and is saved.",
+  keyBad: "Google did not accept this key.", keyEmpty: "Paste the key first.",
+  privacy: "On Gemini's free tier, what you type and the names of your apps and connections go to Google, which may use them to improve its products. The content of your traffic is never sent.",
+  lastModel: "Model that gave the last answer: ",
+  nokey: "Set a Gemini API key in Settings first.", badkey: "Google rejected the API key. Check it in Settings.",
+  unavailable: "Gemini is not answering right now; the free tier may be busy. Try again in a moment.", other: "Something went wrong: ",
+  lane: { auto: "Auto", merge: "Merge both connections", fastest: "Lowest ping", adapter: a => "Only " + a },
+  merging: on => on ? "Merging turned on" : "Merging turned off",
+  limit: (a, m) => m > 0 ? `${a} limited to ${m} Mbit/s` : `${a} limit removed`,
+};
+const $ = id => document.getElementById(id);
+if (window.mlIcon) $("logo").src = window.mlIcon; // the tray's icon, from Go
+document.documentElement.lang = tr ? "tr" : "en";
+document.querySelectorAll("[data-t]").forEach(el => { el.textContent = T[el.dataset.t]; });
+$("input").placeholder = T.placeholder;
+$("send").setAttribute("aria-label", T.send); $("send").title = T.send;
+$("newchat").setAttribute("aria-label", T.newChat); $("newchat").title = T.newChat;
+$("settings").setAttribute("aria-label", T.settings); $("settings").title = T.settings;
+$("close").setAttribute("aria-label", T.close); $("close").title = T.close;
+
+// Go answers slow calls later through window.mlDone(id, result). A result can arrive before the call
+// that started it has handed us its id, so early ones wait in `early`.
+const pending = {}, early = {};
+window.mlDone = (id, res) => { if (pending[id]) { pending[id](res); delete pending[id]; } else early[id] = res; };
+const bridge = (name, ...args) => new Promise((resolve, reject) => {
+  if (typeof window[name] !== "function") { reject(new Error("bridge missing")); return; }
+  window[name](...args).then(id => {
+    if (id in early) { resolve(early[id]); delete early[id]; } else pending[id] = resolve;
+  }, reject);
+});
+
+const log = $("log");
+function scrollDown() { log.scrollTop = log.scrollHeight; }
+function add(cls, text, title) {
+  $("empty").hidden = true;
+  const d = document.createElement("div");
+  d.className = "msg " + cls;
+  d.textContent = text;
+  if (title) d.title = title;
+  log.appendChild(d); scrollDown();
+  return d;
+}
+function actionText(a) {
+  const d = a.detail || {};
+  if (a.tool === "set_app_lane" && d.app) {
+    const l = T.lane[d.lane];
+    return d.app + " → " + (typeof l === "function" ? l(d.adapter) : (l || d.lane));
+  }
+  if (a.tool === "set_merging" && "on" in d) return T.merging(d.on);
+  if (a.tool === "set_speed_limit" && d.adapter) return T.limit(d.adapter, d.mbps);
+  return a.summary;
+}
+function addActions(acts) {
+  if (!acts || !acts.length) return;
+  const box = document.createElement("div");
+  box.className = "acts";
+  for (const a of acts) {
+    const row = document.createElement("div");
+    row.className = "act" + (a.ok ? "" : " fail");
+    const m = document.createElement("span"); m.className = "mark"; m.textContent = a.ok ? "✓" : "✗";
+    const t = document.createElement("span"); t.textContent = actionText(a);
+    row.append(m, t); box.appendChild(row);
+  }
+  log.appendChild(box); scrollDown();
+}
+let lastModel = "";
+let busy = false;
+async function send(text) {
+  text = text.trim();
+  if (!text || busy) return;
+  busy = true; $("send").disabled = true;
+  add("user", text);
+  $("input").value = ""; grow();
+  const typing = document.createElement("div");
+  typing.className = "typing"; typing.innerHTML = "<i></i><i></i><i></i>";
+  log.appendChild(typing); scrollDown();
+  try {
+    const res = await bridge("mlSend", text);
+    typing.remove();
+    if (res.reply) {
+      if (res.reply.text) add("bot", res.reply.text, res.reply.model);
+      addActions(res.reply.actions);
+      lastModel = res.reply.model || lastModel;
+      refreshStatus();
+    } else {
+      add("err", res.error === "other" ? T.other + (res.message || "") : (T[res.error] || T.other + res.error));
+      addActions(res.actions);
+      if (res.error === "nokey" || res.error === "badkey") openSheet();
+    }
+  } catch (e) {
+    typing.remove();
+    add("err", T.other + e.message);
+  } finally {
+    busy = false; $("send").disabled = !$("input").value.trim();
+    $("input").focus();
+  }
+}
+
+const input = $("input");
+function grow() { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 120) + "px"; $("send").disabled = busy || !input.value.trim(); }
+input.addEventListener("input", grow);
+input.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(input.value); } });
+$("form").addEventListener("submit", e => { e.preventDefault(); send(input.value); });
+for (const c of T.chips) {
+  const b = document.createElement("button");
+  b.type = "button"; b.className = "chip"; b.textContent = c;
+  b.addEventListener("click", () => send(c));
+  $("chips").appendChild(b);
+}
+$("newchat").addEventListener("click", () => {
+  if (busy) return;
+  if (window.mlReset) window.mlReset();
+  log.querySelectorAll(".msg, .acts, .typing").forEach(n => n.remove());
+  $("empty").hidden = false; input.focus();
+});
+
+const statusEl = $("status");
+function renderStatus(s) {
+  statusEl.replaceChildren();
+  const state = document.createElement("span");
+  const dot = document.createElement("span"); dot.className = "dot";
+  if (!s.running) { state.className = "off"; state.append(dot, T.notRunning); }
+  else if (s.merging) { state.className = "on"; state.append(dot, T.on); }
+  else { state.className = "off"; state.append(dot, T.off); }
+  statusEl.appendChild(state);
+  if (s.running && s.merging) for (const a of s.adapters || []) {
+    const n = document.createElement("span");
+    n.className = "nic" + (a.up ? "" : " down");
+    n.textContent = a.name + " " + (a.up ? a.mbps.toFixed(1) + " Mbit/s" : T.down);
+    statusEl.appendChild(n);
+  }
+}
+async function refreshStatus() { try { renderStatus(await bridge("mlStatus")); } catch (e) {} }
+setInterval(refreshStatus, 3000);
+
+const sheet = $("sheet");
+async function openSheet() {
+  sheet.classList.add("open");
+  $("keyMsg").textContent = ""; $("keyMsg").className = "keymsg";
+  let src = "";
+  try { src = await window.mlKeySource(); } catch (e) {}
+  $("keyState").textContent = (src === "saved" ? T.keySaved : src === "env" ? T.keyEnv : T.keyNone) + " " + T.keyHelp;
+  $("modelInfo").textContent = lastModel ? T.lastModel + lastModel : "";
+  $("key").value = ""; $("key").focus();
+}
+function closeSheet() { sheet.classList.remove("open"); input.focus(); }
+$("settings").addEventListener("click", openSheet);
+$("close").addEventListener("click", closeSheet);
+document.addEventListener("keydown", e => { if (e.key === "Escape" && sheet.classList.contains("open")) closeSheet(); });
+$("getkey").addEventListener("click", () => { if (window.mlOpenKeyPage) window.mlOpenKeyPage(); });
+$("save").addEventListener("click", async () => {
+  const key = $("key").value.trim(), msg = $("keyMsg");
+  if (!key) { msg.textContent = T.keyEmpty; msg.className = "keymsg bad"; return; }
+  $("save").disabled = true; msg.textContent = T.checking; msg.className = "keymsg";
+  try {
+    const res = await bridge("mlSetKey", key);
+    if (res.error) { msg.textContent = res.error === "badkey" ? T.keyBad : T.other + (res.message || res.error); msg.className = "keymsg bad"; }
+    else { msg.textContent = T.keyOk; msg.className = "keymsg ok"; $("key").value = ""; setTimeout(closeSheet, 900); }
+  } catch (e) { msg.textContent = T.other + e.message; msg.className = "keymsg bad"; }
+  finally { $("save").disabled = false; }
+});
+
+grow();
+refreshStatus();
+(async () => {
+  let src = "";
+  try { src = await window.mlKeySource(); } catch (e) {}
+  if (!src) openSheet(); else input.focus();
+  if (src && window.mlInitial) send(window.mlInitial);
+})();
+</script>
+</body>
+</html>

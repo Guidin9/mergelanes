@@ -5,6 +5,16 @@ entry here before pushing a version tag.
 
 ## [Unreleased]
 
+### Added
+- **Chat (Windows window, and `mergelanes ask` everywhere).** Set lanes, speed limits and merging in plain
+  language, ask which connection an app uses or which lane suits it. It uses Google's Gemini API with your
+  own (free) key, tries several models and moves on when one is busy, out of quota or retired. On Windows
+  a left click on the tray icon opens it (the right click shows the menu, which also has *Chat…*), and so
+  does the MergeLanes shortcut while MergeLanes is running. It runs as the signed-in user, never
+  elevated, and keeps the key encrypted with DPAPI in that user's profile.
+- **Where each app's connections went.** `status.json` now counts each app's connections per adapter under
+  its current rule, which is how the chat answers "which connection does Brave use?" for merged apps.
+
 ### Fixed
 - **Parallel downloads are split over the adapters.** A downloader that opens several connections to one
   server at once (Epic, Steam, browsers) had them all placed on whichever adapter looked least busy at that
