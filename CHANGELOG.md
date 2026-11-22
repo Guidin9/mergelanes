@@ -5,6 +5,8 @@ entry here before pushing a version tag.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-22
+
 ### Added
 - **Chat (Windows window, and `mergelanes ask` everywhere).** Set lanes, speed limits and merging in plain
   language, ask which connection an app uses or which lane suits it. It uses Google's Gemini API with your

@@ -6,7 +6,7 @@ param(
     [string]$Out = 'release-notes.md'
 )
 $ErrorActionPreference = 'Stop'
-$changelog = Get-Content (Join-Path (Split-Path $PSScriptRoot -Parent) 'CHANGELOG.md') -Raw
+$changelog = Get-Content (Join-Path (Split-Path $PSScriptRoot -Parent) 'CHANGELOG.md') -Raw -Encoding UTF8 # Windows PowerShell 5.1 would read it as ANSI
 $m = [regex]::Match($changelog, "(?ms)^## \[$([regex]::Escape($Version))\][^\r\n]*\r?\n(.*?)(?=^## \[|\z)")
 if (-not $m.Success -or -not $m.Groups[1].Value.Trim()) {
     throw "CHANGELOG.md has no entry for $Version. Add a '## [$Version] - <date>' section first."
