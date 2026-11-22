@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"net"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -130,7 +129,8 @@ func classify(err error) dialClass {
 }
 
 // DialTCP connects to host:port over one NIC, failing over to the others on link-level errors.
-// On success the caller owns the returned slot and must Relay or Release it.
+// On success the caller owns the returned slot and must Relay it, or release it with
+// Scheduler.ReleaseTo and dstKey(host, port) (ReleaseFor would leave the destination counted).
 func (b *Balancer) DialTCP(ctx context.Context, host string, port int) (net.Conn, *Slot, Family, error) {
 	return b.DialTCPLane(ctx, host, port, Lane{})
 }
@@ -150,8 +150,9 @@ func (b *Balancer) DialTCPLane(ctx context.Context, host string, port int, lane 
 	if f == Fam6 {
 		rep, lastErr = repNetUnreachable, errors.New("no usable IPv6 adapter")
 	}
+	dst := dstKey(host, port)
 	for {
-		sl := b.S.AcquireLane(f, lane, tried)
+		sl := b.S.AcquireLaneTo(f, lane, tried, dst)
 		if sl == nil {
 			return nil, nil, f, &dialError{rep: rep, err: lastErr}
 		}
@@ -162,11 +163,11 @@ func (b *Balancer) DialTCPLane(ctx context.Context, host string, port int, lane 
 			Timeout:   b.ConnectTimeout,
 			KeepAlive: 30 * time.Second,
 		}
-		conn, err := d.DialContext(ctx, network, net.JoinHostPort(host, strconv.Itoa(port)))
+		conn, err := d.DialContext(ctx, network, dst)
 		if err == nil {
 			return conn, sl, f, nil
 		}
-		b.S.ReleaseFor(sl, f)
+		b.S.ReleaseTo(sl, f, dst)
 		c := classify(err)
 		if c.linkDown {
 			b.S.Fail(sl, f, b.FailCooldown)
@@ -190,15 +191,17 @@ var bufPool = sync.Pool{New: func() any { b := make([]byte, 128<<10); return &b 
 
 // Relay copies both directions until both sides finish, counting bytes on the slot, then
 // closes both conns and releases the slot. Half-close is honoured so request/response
-// protocols that shut down their write side still receive the reply.
-func Relay(client, upstream net.Conn, sl *Slot, f Family, s *Scheduler) {
-	activity := s.track(sl, f)
+// protocols that shut down their write side still receive the reply. host and port are what
+// DialTCP was given, so the slot is released for the same destination.
+func Relay(client, upstream net.Conn, sl *Slot, f Family, s *Scheduler, host string, port int) {
+	dst := dstKey(host, port)
+	activity := s.trackTo(sl, f, dst)
 	var wg sync.WaitGroup
 	var once sync.Once
 	release := func() {
 		once.Do(func() {
 			s.untrack(sl, f, activity)
-			s.ReleaseFor(sl, f)
+			s.ReleaseTo(sl, f, dst)
 		})
 	} // at the first half-close, see slotConn
 	wg.Add(1)

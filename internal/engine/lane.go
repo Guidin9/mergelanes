@@ -66,22 +66,30 @@ func (sl *Slot) RTT(f Family) time.Duration {
 // AcquireLane picks an adapter for a new flow in the given lane, skipping the ones in skip (adapters
 // this flow already failed on). The caller must ReleaseFor it, like with AcquireFor.
 func (s *Scheduler) AcquireLane(f Family, lane Lane, skip map[string]struct{}) *Slot {
+	return s.AcquireLaneTo(f, lane, skip, "")
+}
+
+// AcquireLaneTo is AcquireLane for a TCP flow to dst (host:port); release it with ReleaseTo and the
+// same dst. Only merged flows are spread by destination (see AcquireTo), but flows in every lane are
+// counted, so the counts stay true when a pinned app and a merged one talk to the same server.
+func (s *Scheduler) AcquireLaneTo(f Family, lane Lane, skip map[string]struct{}, dst string) *Slot {
 	switch lane.Kind {
 	case LanePinned:
 		s.mu.Lock()
 		sl := s.pinnedLocked(f, lane.Adapter, skip)
 		if sl != nil {
 			s.takeLocked(sl, f)
+			s.noteDstLocked(sl, f, dst)
 		}
 		s.mu.Unlock()
 		if sl != nil {
 			return sl
 		}
-		return s.acquireFastest(f, skip)
+		return s.acquireFastest(f, skip, dst)
 	case LaneFastest:
-		return s.acquireFastest(f, skip)
+		return s.acquireFastest(f, skip, dst)
 	}
-	return s.AcquireFor(f, skip)
+	return s.AcquireTo(f, skip, dst)
 }
 
 // pinnedLocked returns the named adapter if it can carry the flow right now. An adapter that has
@@ -106,7 +114,7 @@ func (s *Scheduler) pinnedLocked(f Family, name string, skip map[string]struct{}
 	return nil
 }
 
-func (s *Scheduler) acquireFastest(f Family, skip map[string]struct{}) *Slot {
+func (s *Scheduler) acquireFastest(f Family, skip map[string]struct{}, dst string) *Slot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	pool := s.poolLocked(f, skip)
@@ -139,6 +147,7 @@ func (s *Scheduler) acquireFastest(f Family, skip map[string]struct{}) *Slot {
 		s.primary[f] = pick.key
 	}
 	s.takeLocked(pick, f)
+	s.noteDstLocked(pick, f, dst)
 	return pick
 }
 

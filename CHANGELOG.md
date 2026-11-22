@@ -5,6 +5,15 @@ entry here before pushing a version tag.
 
 ## [Unreleased]
 
+### Fixed
+- **Parallel downloads are split over the adapters.** A downloader that opens several connections to one
+  server at once (Epic, Steam, browsers) had them all placed on whichever adapter looked least busy at that
+  moment, often because chatty but tiny flows counted as busy on the other one, so the download ran on one
+  link. Connections to the same host and port are now spread over the adapters by their weight, and a link
+  whose speed is not known yet (right after a start) gets an equal share until it shows otherwise; idle
+  keep-alive sockets to the same address do not count. Measured: an Epic download went from about 7.5 to
+  11-14 Mbit/s on two links of about 6-7.5 each.
+
 ## [0.1.1] - 2026-11-15
 
 ### Fixed

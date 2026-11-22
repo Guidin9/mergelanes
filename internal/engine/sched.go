@@ -4,6 +4,7 @@ import (
 	"math"
 	"math/rand/v2"
 	"net"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -57,6 +58,7 @@ type Slot struct {
 	state           [2]linkState
 	lastProbe       [2]time.Time
 	downUntil       [2]time.Time
+	sib             [2]map[string]int // open TCP flows per destination (host:port), see AcquireTo
 	lastIn, lastOut [2]int64
 	rateIn, rateOut [2]float64 // bytes/s over the last tick
 	peak            [2]float64 // observed capacity: max recent rateIn+rateOut
@@ -74,14 +76,19 @@ type flowActivity struct {
 	bytes atomic.Int64
 	last  int64
 	idle  time.Duration
+	dst   string // host:port the flow goes to, "" if unknown; set once, see AcquireTo
 }
 
 const flowIdleAfter = 2 * time.Second
 
-func (s *Scheduler) track(sl *Slot, f Family) *flowActivity {
+func (s *Scheduler) track(sl *Slot, f Family) *flowActivity { return s.trackTo(sl, f, "") }
+
+// trackTo is track for a flow acquired with a destination, so AcquireTo can tell its idle
+// keep-alive sockets from the ones moving data.
+func (s *Scheduler) trackTo(sl *Slot, f Family, dst string) *flowActivity {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	a := &flowActivity{}
+	a := &flowActivity{dst: dst}
 	if sl.flows[f] == nil {
 		sl.flows[f] = make(map[*flowActivity]struct{})
 	}
@@ -390,30 +397,93 @@ func (s *Scheduler) Release(sl *Slot)                       { s.ReleaseFor(sl, F
 
 // AcquireFor picks a NIC that has an address of the given family.
 func (s *Scheduler) AcquireFor(f Family, skip map[string]struct{}) *Slot {
+	return s.AcquireTo(f, skip, "")
+}
+
+// AcquireTo is AcquireFor for a TCP flow to dst (host:port, "" for none); release it with ReleaseTo
+// and the same dst. Downloaders get their speed from parallel connections to one server (Epic and
+// Steam fetch chunks over several, browsers and download managers fetch ranges), and they open them
+// all at once, before any of them moves data. The busy count alone would send that whole burst to
+// whichever adapter looked least busy at that moment, often because chatty but tiny flows (chat,
+// music, open tabs) count as busy on the other one, and the download would run on one link. So once
+// a destination has flows in use, the next one goes to the adapter with the fewest of them for its
+// weight, and the busy count only breaks ties. In automatic mode only flows that are connecting or
+// moved data in the last two seconds count, like for busy: a CDN address is shared by many sites,
+// and a browser's idle keep-alive sockets to it must not push a new download onto the other link.
+// The first flow to a destination is placed as before.
+func (s *Scheduler) AcquireTo(f Family, skip map[string]struct{}, dst string) *Slot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	pool := s.poolLocked(f, skip)
 	if len(pool) == 0 {
 		return nil
 	}
+	sibs := func(sl *Slot) int64 {
+		n := int64(sl.sib[f][dst])
+		if s.auto && n > 0 {
+			for a := range sl.flows[f] {
+				if a.dst == dst && a.idle >= flowIdleAfter {
+					n--
+				}
+			}
+		}
+		return max(n, 0)
+	}
+	spread := false
+	if dst != "" {
+		for _, sl := range pool {
+			if sibs(sl) > 0 {
+				spread = true
+				break
+			}
+		}
+	}
 	// Random start so ties don't resonate with the arrival pattern (a rotating counter can
 	// lock onto e.g. "every third flow is a short DNS-like one" and starve an adapter).
 	start := rand.IntN(len(pool))
 	var best *Slot
-	bestScore := math.Inf(1)
+	bestSib, bestScore := math.Inf(1), math.Inf(1)
 	for i := range pool {
 		sl := pool[(start+i)%len(pool)]
 		load := sl.actF[f].Load()
 		if s.auto {
 			load = sl.busy(f)
 		}
-		if score := float64(load+1) / sl.weight[f]; score < bestScore {
-			best, bestScore = sl, score
+		score := float64(load+1) / sl.weight[f]
+		sib := 0.0
+		if spread {
+			sib = float64(sibs(sl)+1) / spreadWeight(sl.weight[f])
+		}
+		if sib < bestSib || (sib == bestSib && score < bestScore) {
+			best, bestSib, bestScore = sl, sib, score
 		}
 	}
 	s.takeLocked(best, f)
+	s.noteDstLocked(best, f, dst)
 	return best
 }
+
+// spreadWeight is the weight AcquireTo spreads a destination's flows by. A link that carries little
+// can't show its speed, and Tick lets its estimate recover only to half the best link's, so a weight
+// near 0.5 means "not known, may be as fast". Spreading by the raw weight would give it a third of a
+// download's connections, keep it from showing more, and run the download mostly on one link (seen:
+// 3 of 4 on Wi-Fi, 9.6 instead of 15 Mbit/s after a restart). Doubling gives an unproven link an equal
+// share, and a slow one (0.1) still gets few.
+func spreadWeight(w float64) float64 { return math.Min(1, 2*w) }
+
+// noteDstLocked counts a new flow to dst on sl, for AcquireTo's spreading.
+func (s *Scheduler) noteDstLocked(sl *Slot, f Family, dst string) {
+	if dst == "" {
+		return
+	}
+	if sl.sib[f] == nil {
+		sl.sib[f] = make(map[string]int)
+	}
+	sl.sib[f][dst]++
+}
+
+// dstKey is the destination key of a TCP flow for AcquireTo and ReleaseTo.
+func dstKey(host string, port int) string { return net.JoinHostPort(host, strconv.Itoa(port)) }
 
 // poolLocked returns the adapters a new flow of family f may go to: the best non-empty tier of
 // 0 = probed up, 1 = not probed yet, 2 = probe failed or link error cooldown. A dead tether gets no
@@ -489,6 +559,21 @@ func (s *Scheduler) V6CoversAll() bool {
 func (s *Scheduler) ReleaseFor(sl *Slot, f Family) {
 	sl.active.Add(-1)
 	sl.actF[f].Add(-1)
+}
+
+// ReleaseTo is ReleaseFor for a flow acquired with a destination (AcquireTo, AcquireLaneTo).
+func (s *Scheduler) ReleaseTo(sl *Slot, f Family, dst string) {
+	s.ReleaseFor(sl, f)
+	if dst == "" {
+		return
+	}
+	s.mu.Lock()
+	if n := sl.sib[f][dst]; n > 1 {
+		sl.sib[f][dst] = n - 1
+	} else {
+		delete(sl.sib[f], dst)
+	}
+	s.mu.Unlock()
 }
 
 // SetState records a probe result. A passing probe also clears any link-error cooldown.

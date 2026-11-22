@@ -15,6 +15,7 @@ type slotConn struct {
 	*net.TCPConn
 	sl       *Slot
 	fam      Family
+	dst      string // host:port, see Scheduler.AcquireTo
 	s        *Scheduler
 	once     sync.Once
 	activity *flowActivity
@@ -50,7 +51,7 @@ func (c *slotConn) Write(p []byte) (int, error) {
 func (c *slotConn) release() {
 	c.once.Do(func() {
 		c.s.untrack(c.sl, c.fam, c.activity)
-		c.s.ReleaseFor(c.sl, c.fam)
+		c.s.ReleaseTo(c.sl, c.fam, c.dst)
 	})
 }
 
@@ -72,7 +73,8 @@ func (b *Balancer) DialPinnedLane(ctx context.Context, host string, port int, la
 	if err != nil {
 		return nil, err
 	}
-	return &slotConn{TCPConn: c.(*net.TCPConn), sl: sl, fam: f, s: b.S, activity: b.S.track(sl, f)}, nil
+	dst := dstKey(host, port)
+	return &slotConn{TCPConn: c.(*net.TCPConn), sl: sl, fam: f, dst: dst, s: b.S, activity: b.S.trackTo(sl, f, dst)}, nil
 }
 
 type slotPacketConn struct {
